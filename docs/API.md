@@ -79,6 +79,7 @@ interface SlotQuestion {
   solved: boolean
   attemptsLeft: number
   locked: boolean
+  correctAnswer?: string
 }
 
 interface AnswerResult {
@@ -92,7 +93,8 @@ interface AnswerResult {
 
 `requestQuestion` mengacak `metadata.options` dan `metadata.words` di server. `attemptsLeft`
 dihitung dari `activity_logs` (maks `MAX_ATTEMPTS_PER_SLOT`); `locked` menandakan nomor sudah
-terkunci untuk tim tersebut.
+terkunci untuk tim tersebut. `correctAnswer` hanya diisi bila `solved === true` (mode review),
+yaitu saat tim tersebut sudah menjawab benar nomor itu; selain itu `undefined`.
 
 ## 2. Server Actions
 
@@ -125,6 +127,7 @@ await startSession(code) // snapshot sudah dibuat saat createSession
 
 const turn = await requestQuestion({ sessionCode: code, teamId, slotNumber: 2 })
 // turn.solved = apakah tim ini sudah menjawab benar (mode review)
+// turn.correctAnswer = kunci jawaban, hanya ada bila turn.solved
 
 const res = await submitAnswer({ sessionCode: code, teamId, slotNumber: 2, answer: 'bought' })
 // res.correct === true -> poin bertambah, realtime memperbarui papan

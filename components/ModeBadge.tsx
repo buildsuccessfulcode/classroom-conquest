@@ -8,19 +8,19 @@ export default function ModeBadge() {
   return (
     <span
       className={[
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold",
+        "inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-extrabold",
         isSupabase
-          ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-          : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300",
+          ? "border-brand-soft bg-brand-soft/50 text-brand-dark"
+          : "border-sun-soft bg-sun-soft/60 text-sun-dark",
       ].join(" ")}
     >
       <span
         className={[
           "h-2 w-2 rounded-full",
-          isSupabase ? "bg-emerald-500" : "bg-amber-500",
+          isSupabase ? "bg-brand" : "bg-sun",
         ].join(" ")}
       />
-      {isSupabase ? "Mode Supabase" : "Mode Demo (lokal)"}
+      {isSupabase ? "Supabase" : "Demo Lokal"}
     </span>
   );
 }

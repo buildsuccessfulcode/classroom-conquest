@@ -17,7 +17,9 @@
 - Semua tim melihat nomor yang sama.
 - Di `/display`, tiap nomor menampilkan **titik warna tim** yang sudah menjawab benar + jumlah.
 - Di `/play`, nomor yang sudah dijawab benar ditandai warna tim + centang dan bisa dibuka
-  lagi untuk review (read-only).
+  lagi untuk review (read-only) beserta kunci jawabannya.
+- Nomor soal yang sedang dibuka disimpan di URL (`/play?slot=N`), sehingga reload halaman
+  tidak menutup popup dan nomor tersebut otomatis dibuka lagi.
 
 ## 3. Alur Menjawab
 
@@ -28,7 +30,9 @@
 3. Jika jawaban **benar**:
    - tercatat di tabel `answers` (sekali saja per nomor per tim),
    - `teams.score += question.points`,
-   - log: `"Tim X menjawab benar nomor 3 (+150)"`.
+   - log: `"Tim X menjawab benar nomor 3 (+150)"`,
+   - saat nomor dibuka lagi, kunci jawaban hanya ditampilkan ke tim yang sudah menjawab
+     benar nomor tersebut.
 4. Jika **salah**: tidak ada penalti, nomor tetap tersedia untuk dicoba lagi, log mencatat
    percobaan gagal beserta nomornya (`"Tim X menjawab salah nomor 3 (percobaan 1/3)"`).
 5. **Batas percobaan:** tiap nomor hanya bisa dicoba maksimal `MAX_ATTEMPTS_PER_SLOT` kali

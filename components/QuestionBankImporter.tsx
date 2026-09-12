@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { importQuestions } from "@/lib/backend";
 import { parseQuestionBank } from "@/lib/questions";
 import type { SeedQuestion } from "@/lib/types";
+import { UploadIcon } from "./icons";
 
 const MAX_FILE_BYTES = 1_000_000;
 
@@ -60,9 +61,7 @@ export default function QuestionBankImporter({
     setBusy(true);
     try {
       const result = await importQuestions({ groupName, subject, questions });
-      setNote(
-        `${result.inserted} soal diimpor ke group ${result.groupName}.`,
-      );
+      setNote(`${result.inserted} soal diimpor ke group ${result.groupName}.`);
       setRaw("");
       setFileName(null);
       if (inputRef.current) inputRef.current.value = "";
@@ -75,13 +74,15 @@ export default function QuestionBankImporter({
   };
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+    <section className="cc-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-bold">Impor Bank Soal</h2>
+        <h2 className="cc-display text-xl font-extrabold text-ink">
+          Impor Bank Soal
+        </h2>
         <a
           href="/sample-questions.json"
           download
-          className="text-sm font-semibold text-indigo-600 underline dark:text-indigo-400"
+          className="text-sm font-extrabold text-ocean-dark underline"
         >
           Unduh contoh JSON
         </a>
@@ -90,18 +91,18 @@ export default function QuestionBankImporter({
         <input
           value={groupName}
           onChange={(event) => setGroupName(event.target.value)}
-          className="rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+          className="rounded-2xl border-2 border-cloud bg-snow p-3 text-sm font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
           placeholder="Nama group (mis. English Bab 1)"
           required
         />
         <input
           value={subject}
           onChange={(event) => setSubject(event.target.value)}
-          className="rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+          className="rounded-2xl border-2 border-cloud bg-snow p-3 text-sm font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
           placeholder="Mata pelajaran"
           required
         />
-        <p className="text-xs text-slate-500">
+        <p className="text-xs font-semibold text-ink-soft">
           Nama group yang sudah ada akan ditambahi soal baru.
         </p>
 
@@ -118,24 +119,25 @@ export default function QuestionBankImporter({
             if (file) void readFile(file);
           }}
           className={[
-            "flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-4 text-center text-sm transition",
+            "flex flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed p-5 text-center text-sm font-semibold transition",
             dragging
-              ? "border-indigo-500 bg-indigo-50 dark:bg-slate-800"
-              : "border-slate-300 dark:border-slate-600",
+              ? "border-ocean bg-ocean-soft"
+              : "border-cloud bg-snow text-ink-soft",
           ].join(" ")}
         >
-          <p className="text-slate-600 dark:text-slate-300">
+          <UploadIcon className="h-6 w-6 text-ocean" />
+          <p>
             Seret file <span className="font-mono">.json</span> ke sini
           </p>
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="font-semibold text-indigo-600 underline dark:text-indigo-400"
+            className="font-extrabold text-ocean-dark underline"
           >
             atau pilih file
           </button>
           {fileName ? (
-            <p className="font-mono text-xs text-slate-500">{fileName}</p>
+            <p className="font-mono text-xs text-ink-soft">{fileName}</p>
           ) : null}
           <input
             ref={inputRef}
@@ -156,24 +158,26 @@ export default function QuestionBankImporter({
             setFileName(null);
           }}
           rows={6}
-          className="rounded-lg border border-slate-300 bg-white p-2 font-mono text-xs text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+          className="rounded-2xl border-2 border-cloud bg-snow p-3 font-mono text-xs text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
           placeholder='Atau tempel JSON di sini: [{"type":"MULTIPLE_CHOICE","difficulty":"EASY","question_text":"...","metadata":{"options":["A","B"]},"correct_answer":"A"}]'
         />
 
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg border border-indigo-500 p-2 font-bold text-indigo-600 transition hover:bg-indigo-50 disabled:opacity-60 dark:text-indigo-400 dark:hover:bg-slate-800"
+          className="cc-btn border-ocean-dark bg-ocean p-3 text-white"
         >
           {busy ? "Mengimpor..." : "Impor Soal"}
         </button>
         {note ? (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400">
+          <p className="rounded-2xl bg-brand-soft px-3 py-2 text-sm font-bold text-brand-dark">
             {note}
           </p>
         ) : null}
         {error ? (
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <p className="rounded-2xl bg-cherry-soft px-3 py-2 text-sm font-bold text-cherry-dark">
+            {error}
+          </p>
         ) : null}
       </form>
     </section>

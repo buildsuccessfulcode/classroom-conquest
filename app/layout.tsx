@@ -1,32 +1,32 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Baloo_2, Nunito } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const nunito = Nunito({
+  variable: "--font-nunito",
   subsets: ["latin"],
+  weight: ["400", "600", "700", "800", "900"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const baloo = Baloo_2({
+  variable: "--font-baloo",
   subsets: ["latin"],
+  weight: ["600", "700", "800"],
 });
 
 export const metadata: Metadata = {
   title: "Classroom Conquest",
   description:
-    "Platform gamifikasi pembelajaran berbasis kelompok: rebut wilayah kelas dengan menjawab soal.",
+    "Gamifikasi pembelajaran berbasis kelompok: kumpulkan XP, jaga streak, dan rebut puncak papan peringkat kelas.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="id"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${nunito.variable} ${baloo.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-        {children}
-      </body>
+      <body className="min-h-full bg-snow text-ink">{children}</body>
     </html>
   );
 }

@@ -308,6 +308,19 @@ export async function fetchGameState(
   const db = load();
   const session = findSession(db, sessionCode);
   if (!session) return null;
+  if (session.status === "PLAYING" && isSessionTimeUp(session)) {
+    session.status = "ENDED";
+    session.is_active = false;
+    session.ended_at = nowIso();
+    addLog(
+      db,
+      session.id,
+      null,
+      "Waktu habis. Sesi berakhir otomatis.",
+      "SYSTEM",
+    );
+    save(db);
+  }
   return {
     session,
     teams: db.teams
@@ -367,6 +380,7 @@ export async function requestQuestion(input: {
     solved,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
     locked: wrongAttempts >= MAX_ATTEMPTS_PER_SLOT,
+    correctAnswer: solved ? question.correct_answer : undefined,
   };
 }
 

@@ -3,13 +3,13 @@
 import { formatTime } from "@/lib/format";
 import type { ActivityLog as ActivityLogEntry, LogKind } from "@/lib/types";
 
-const KIND_STYLES: Record<LogKind, string> = {
-  CLAIM: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-  ATTACK: "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200",
-  JOIN: "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200",
-  SYSTEM: "border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
-  INFO: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200",
-  ERROR: "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+const KIND_STYLES: Record<LogKind, { card: string; dot: string }> = {
+  CLAIM: { card: "border-brand-soft bg-brand-soft/50 text-brand-dark", dot: "bg-brand" },
+  ATTACK: { card: "border-cherry-soft bg-cherry-soft/50 text-cherry-dark", dot: "bg-cherry" },
+  JOIN: { card: "border-ocean-soft bg-ocean-soft/50 text-ocean-dark", dot: "bg-ocean" },
+  SYSTEM: { card: "border-cloud bg-snow text-ink-soft", dot: "bg-ink-soft" },
+  INFO: { card: "border-sun-soft bg-sun-soft/60 text-sun-dark", dot: "bg-sun" },
+  ERROR: { card: "border-cherry-soft bg-cherry-soft/50 text-cherry-dark", dot: "bg-cherry" },
 };
 
 interface ActivityLogProps {
@@ -23,23 +23,33 @@ export default function ActivityLog({
 }: ActivityLogProps) {
   if (logs.length === 0) {
     return (
-      <p className="text-sm text-slate-500 dark:text-slate-400">{emptyText}</p>
+      <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
+        {emptyText}
+      </p>
     );
   }
 
   return (
-    <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
-      {[...logs].reverse().map((log) => (
-        <li
-          key={log.id}
-          className={`rounded-lg border px-3 py-2 text-sm ${KIND_STYLES[log.kind]}`}
-        >
-          <span className="mr-2 font-mono text-xs opacity-70">
-            {formatTime(log.created_at)}
-          </span>
-          {log.message}
-        </li>
-      ))}
+    <ul className="cc-scrollbar flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
+      {[...logs].reverse().map((log) => {
+        const style = KIND_STYLES[log.kind];
+        return (
+          <li
+            key={log.id}
+            className={`flex items-start gap-2 rounded-2xl border-2 px-3 py-2 text-sm font-semibold ${style.card}`}
+          >
+            <span
+              className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${style.dot}`}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="mr-1.5 font-mono text-[11px] opacity-60">
+                {formatTime(log.created_at)}
+              </span>
+              {log.message}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -1,7 +1,15 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { pickTeamColor } from "@/lib/colors";
 import { isSupabaseConfigured } from "@/lib/config";
+import {
+  TEACHER_COOKIE,
+  TEACHER_SESSION_MAX_AGE,
+  requireTeacher,
+  teacherSessionToken,
+  verifyTeacherPassword,
+} from "@/lib/teacher-auth";
 import {
   MAX_ATTEMPTS_PER_SLOT,
   RATE_LIMIT_MAX_REQUESTS,
@@ -130,6 +138,28 @@ function isSessionTimeUp(session: Session): boolean {
   return Date.now() > endsAt;
 }
 
+async function autoEndIfExpired(session: Session): Promise<Session> {
+  if (session.status !== "PLAYING") return session;
+  if (!isSessionTimeUp(session)) return session;
+  const now = new Date().toISOString();
+  const { data, error } = await sb()
+    .from("sessions")
+    .update({ status: "ENDED", is_active: false, ended_at: now })
+    .eq("id", session.id)
+    .eq("status", "PLAYING")
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return session;
+  await addLog(
+    session.id,
+    null,
+    "Waktu habis. Sesi berakhir otomatis.",
+    "SYSTEM",
+  );
+  return data as Session;
+}
+
 async function getSessionByCode(code: string): Promise<Session | null> {
   const { data, error } = await sb()
     .from("sessions")
@@ -212,6 +242,7 @@ async function ensureSlots(session: Session): Promise<void> {
 }
 
 export async function listQuestionGroups(): Promise<QuestionGroupSummary[]> {
+  await requireTeacher();
   const { data, error } = await sb()
     .from("question_groups")
     .select("id, name, subject, created_at, questions(count)")
@@ -230,6 +261,7 @@ export async function listQuestionGroups(): Promise<QuestionGroupSummary[]> {
 export async function listGroupQuestions(
   groupId: string,
 ): Promise<PublicQuestion[]> {
+  await requireTeacher();
   const { data, error } = await sb()
     .from("questions")
     .select(
@@ -246,6 +278,7 @@ export async function createSession(input: {
   groupId: string;
   durationMinutes?: number;
 }): Promise<{ code: string }> {
+  await requireTeacher();
   const client = sb();
   const groupId = input.groupId?.trim();
   if (!groupId) throw new Error("Group soal wajib dipilih");
@@ -291,6 +324,7 @@ export async function createSession(input: {
 }
 
 export async function listSessions(): Promise<Session[]> {
+  await requireTeacher();
   const { data, error } = await sb()
     .from("sessions")
     .select("*")
@@ -346,32 +380,33 @@ export async function fetchGameState(
   const client = sb();
   const session = await getSessionByCode(sessionCode);
   if (!session) return null;
+  const activeSession = await autoEndIfExpired(session);
   const [teamsRes, slotsRes, answersRes, logsRes] = await Promise.all([
     client
       .from("teams")
       .select("*")
-      .eq("session_id", session.id)
+      .eq("session_id", activeSession.id)
       .order("joined_at", { ascending: true }),
     client
       .from("session_questions")
       .select("*")
-      .eq("session_id", session.id)
+      .eq("session_id", activeSession.id)
       .order("slot_number", { ascending: true }),
     client
       .from("answers")
       .select("*")
-      .eq("session_id", session.id)
+      .eq("session_id", activeSession.id)
       .order("answered_at", { ascending: true }),
     client
       .from("activity_logs")
       .select("*")
-      .eq("session_id", session.id)
+      .eq("session_id", activeSession.id)
       .order("created_at", { ascending: false })
       .limit(50),
   ]);
   const logs = ((logsRes.data as ActivityLog[] | null) ?? []).reverse();
   return {
-    session,
+    session: activeSession,
     teams: (teamsRes.data as Team[] | null) ?? [],
     slots: (slotsRes.data as SessionSlot[] | null) ?? [],
     answers: (answersRes.data as Answer[] | null) ?? [],
@@ -423,6 +458,7 @@ export async function requestQuestion(input: {
     solved: Boolean(existing),
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
     locked: wrongAttempts >= MAX_ATTEMPTS_PER_SLOT,
+    correctAnswer: existing ? question.correct_answer : undefined,
   };
 }
 
@@ -558,6 +594,7 @@ export async function importQuestions(input: {
   inserted: number;
   created: boolean;
 }> {
+  await requireTeacher();
   const client = sb();
   const groupName = normalizeGroupName(input.groupName);
   const subject = normalizeSubject(input.subject);
@@ -602,6 +639,7 @@ export async function importQuestions(input: {
 }
 
 export async function deleteQuestionGroup(groupId: string): Promise<void> {
+  await requireTeacher();
   const client = sb();
   const id = groupId?.trim();
   if (!id) throw new Error("Group soal tidak valid");
@@ -621,6 +659,7 @@ export async function deleteQuestionGroup(groupId: string): Promise<void> {
 }
 
 export async function deleteQuestion(questionId: string): Promise<void> {
+  await requireTeacher();
   const client = sb();
   const id = questionId?.trim();
   if (!id) throw new Error("Soal tidak valid");
@@ -640,6 +679,7 @@ export async function deleteQuestion(questionId: string): Promise<void> {
 }
 
 export async function startSession(sessionCode: string): Promise<void> {
+  await requireTeacher();
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
   const now = new Date().toISOString();
@@ -657,6 +697,7 @@ export async function startSession(sessionCode: string): Promise<void> {
 }
 
 export async function resetSession(sessionCode: string): Promise<void> {
+  await requireTeacher();
   const client = sb();
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
@@ -677,6 +718,7 @@ export async function resetSession(sessionCode: string): Promise<void> {
 }
 
 export async function endSession(sessionCode: string): Promise<void> {
+  await requireTeacher();
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
   const now = new Date().toISOString();
@@ -689,8 +731,31 @@ export async function endSession(sessionCode: string): Promise<void> {
 }
 
 export async function deleteSession(sessionCode: string): Promise<void> {
+  await requireTeacher();
   const session = await getSessionByCode(sessionCode);
   if (!session) return;
   const { error } = await sb().from("sessions").delete().eq("id", session.id);
   if (error) throw new Error(error.message);
+}
+
+export async function loginTeacher(
+  password: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!verifyTeacherPassword(password)) {
+    return { ok: false, error: "Password salah" };
+  }
+  const store = await cookies();
+  store.set(TEACHER_COOKIE, teacherSessionToken(), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: TEACHER_SESSION_MAX_AGE,
+  });
+  return { ok: true };
+}
+
+export async function logoutTeacher(): Promise<void> {
+  const store = await cookies();
+  store.delete(TEACHER_COOKIE);
 }

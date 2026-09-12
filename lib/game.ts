@@ -120,6 +120,20 @@ export function countWrongAttempts(
   );
 }
 
+export function countWrongAttemptsForTeam(
+  logs: { message: string; team_id?: string | null }[],
+  slotNumber: number,
+  teamId: string,
+): number {
+  return logs.reduce(
+    (count, log) =>
+      log.team_id === teamId && wrongAttemptSlot(log.message) === slotNumber
+        ? count + 1
+        : count,
+    0,
+  );
+}
+
 export function isRapidFire(
   lastAnsweredAt: string | null,
   now: number,

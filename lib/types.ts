@@ -129,6 +129,7 @@ export interface SlotQuestion {
   solved: boolean;
   attemptsLeft: number;
   locked: boolean;
+  correctAnswer?: string;
 }
 
 export interface AnswerResult {

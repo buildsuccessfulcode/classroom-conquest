@@ -71,7 +71,9 @@ npm run build          # build
 
 ## Aturan Penting
 
-1. `questions.correct_answer` TIDAK BOLEH sampai ke client. Gunakan `PublicQuestion`.
+1. `questions.correct_answer` TIDAK BOLEH sampai ke client saat bermain. Gunakan
+   `PublicQuestion`. Pengecualian mode review: `SlotQuestion.correctAnswer` hanya diisi bila
+   tim itu sudah menjawab benar nomor tersebut.
 2. Anon hanya `SELECT`; semua tulis lewat service role di server.
 3. Realtime hanya `answers`, `teams`, `activity_logs`.
 4. Snapshot nomor soal dibuat saat `createSession`; start/reset tidak mengubah snapshot.

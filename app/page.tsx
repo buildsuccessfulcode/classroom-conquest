@@ -1,82 +1,150 @@
 import Link from "next/link";
+import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
+import {
+  ArrowRightIcon,
+  BoltIcon,
+  FlameIcon,
+  PlayIcon,
+  StarIcon,
+  TargetIcon,
+  TrophyIcon,
+} from "@/components/icons";
 
 const ROLES = [
   {
     href: "/teacher",
     title: "Dashboard Guru",
     description:
-      "Buat sesi, atur durasi, impor bank soal, lalu pantau poin dan jalannya permainan.",
+      "Buat sesi, impor bank soal, lalu pantau XP dan jalannya permainan.",
+    icon: TargetIcon,
+    tone: "bg-ocean-soft text-ocean-dark",
   },
   {
     href: "/play",
     title: "Main Murid",
     description:
-      "Gabung dengan kode sesi dan nama tim, lalu kumpulkan poin dengan menjawab nomor soal.",
+      "Gabung dengan kode sesi, kumpulkan XP, jaga streak, dan raih badge.",
+    icon: PlayIcon,
+    tone: "bg-brand-soft text-brand-dark",
   },
   {
     href: "/display",
     title: "Papan Proyektor",
     description:
-      "Tampilkan papan nomor soal, peringkat tim, dan log aktivitas secara langsung di depan kelas.",
+      "Tampilkan papan nomor, peringkat kelas, dan log aktivitas realtime.",
+    icon: TrophyIcon,
+    tone: "bg-grape-soft text-grape-dark",
   },
+];
+
+const FEATURES = [
+  { icon: BoltIcon, label: "XP tiap jawaban", tone: "text-grape" },
+  { icon: FlameIcon, label: "Streak beruntun", tone: "text-mango" },
+  { icon: StarIcon, label: "Koleksi badge", tone: "text-sun-dark" },
+  { icon: TrophyIcon, label: "Peringkat kelas", tone: "text-ocean" },
 ];
 
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-12">
-      <header className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-sm font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
-            Classroom Conquest
-          </span>
-          <ModeBadge />
-        </div>
-        <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl">
-          Ubah ruang kelas menjadi arena strategi.
-        </h1>
-        <p className="max-w-2xl text-lg text-slate-600 dark:text-slate-300">
-          Gamifikasi pembelajaran berbasis kelompok. Setiap tim menjawab nomor
-          soal pilihan ganda, isian singkat, atau menyusun kata untuk
-          mengumpulkan poin. Papan permainan diperbarui secara langsung di layar
-          proyektor.
-        </p>
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-5 py-10">
+      <header className="flex items-center justify-between gap-4">
+        <span className="cc-display text-lg font-extrabold text-brand-dark">
+          Classroom Conquest
+        </span>
+        <ModeBadge />
       </header>
+
+      <section className="cc-card flex flex-col items-center gap-6 overflow-hidden p-6 sm:flex-row sm:p-8">
+        <div className="flex-1">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-xs font-extrabold text-brand-dark">
+            <BoltIcon className="h-3.5 w-3.5" />
+            Belajar sambil bertarung
+          </span>
+          <h1 className="cc-display mt-3 text-4xl font-extrabold leading-tight text-ink sm:text-5xl">
+            Ubah kelas jadi arena yang seru.
+          </h1>
+          <p className="mt-3 max-w-xl text-lg font-semibold text-ink-soft">
+            Setiap tim menjawab nomor soal secara mandiri, mengumpulkan XP,
+            menjaga streak, dan berebut puncak papan peringkat kelas.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href="/play"
+              className="cc-btn border-brand-dark bg-brand px-5 py-3 text-white"
+            >
+              Mulai Main
+              <ArrowRightIcon className="h-5 w-5" />
+            </Link>
+            <Link
+              href="/teacher"
+              className="cc-btn border-ocean-dark bg-ocean px-5 py-3 text-white"
+            >
+              Saya Guru
+            </Link>
+          </div>
+          <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-2">
+            {FEATURES.map((feature) => (
+              <li
+                key={feature.label}
+                className="flex items-center gap-2 text-sm font-extrabold text-ink"
+              >
+                <feature.icon className={`h-5 w-5 ${feature.tone}`} />
+                {feature.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="shrink-0">
+          <Mascot mood="happy" size={190} float />
+        </div>
+      </section>
 
       <section className="grid gap-4 sm:grid-cols-3">
         {ROLES.map((role) => (
           <Link
             key={role.href}
             href={role.href}
-            className="group flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700"
+            className="cc-card group flex flex-col gap-3 p-6 transition hover:-translate-y-1"
           >
-            <h2 className="text-xl font-bold group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+            <span
+              className={`flex h-12 w-12 items-center justify-center rounded-2xl ${role.tone}`}
+            >
+              <role.icon className="h-6 w-6" />
+            </span>
+            <h2 className="cc-display text-xl font-extrabold text-ink">
               {role.title}
             </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
+            <p className="text-sm font-semibold text-ink-soft">
               {role.description}
             </p>
-            <span className="mt-auto text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+            <span className="mt-auto flex items-center gap-1 text-sm font-extrabold text-ocean-dark">
               Buka halaman
+              <ArrowRightIcon className="h-4 w-4 transition group-hover:translate-x-1" />
             </span>
           </Link>
         ))}
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-        <h2 className="mb-3 text-lg font-bold">Cara Bermain Singkat</h2>
-        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
-          <li>Guru membuat sesi dan mencatat kode 6 karakter.</li>
-          <li>Proyektor membuka halaman papan dan memasukkan kode sesi.</li>
-          <li>Setiap kelompok bergabung dari perangkat masing-masing.</li>
-          <li>
-            Setiap tim menjawab nomor soal mana saja yang tersedia; jawaban
-            salah tidak mengurangi poin dan bisa dicoba lagi.
-          </li>
-          <li>
-            Pemenang ditentukan dari total poin terbanyak; jika sama, tim yang
-            menjawab benar lebih dulu (waktu jawaban terakhir) unggul.
-          </li>
+      <section className="cc-card p-6">
+        <h2 className="cc-display mb-3 text-xl font-extrabold text-ink">
+          Cara Bermain Singkat
+        </h2>
+        <ol className="flex flex-col gap-2 text-sm font-semibold text-ink-soft">
+          {[
+            "Guru membuat sesi dan membagikan kode 6 karakter.",
+            "Proyektor membuka papan dan memasukkan kode sesi.",
+            "Setiap kelompok bergabung dari perangkat masing-masing.",
+            "Pilih nomor soal mana saja; jawaban salah tidak mengurangi XP.",
+            "Poin terbanyak jadi juara, dengan waktu jawaban sebagai penentu seri.",
+          ].map((step, index) => (
+            <li key={step} className="flex items-start gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-extrabold text-brand-dark">
+                {index + 1}
+              </span>
+              <span className="pt-0.5">{step}</span>
+            </li>
+          ))}
         </ol>
       </section>
     </main>
