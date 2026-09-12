@@ -3,6 +3,15 @@
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #020617;
+    --foreground: #f1f5f9;
+    color-scheme: dark;
+  }
 }
 
 @theme inline {
@@ -16,4 +25,85 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@keyframes cc-pop {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes cc-rise {
+  0% {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes cc-ring {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes cc-confetti {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(115vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.cc-pop {
+  animation: cc-pop 0.65s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+.cc-rise {
+  animation: cc-rise 0.5s ease-out both;
+}
+
+.cc-ring {
+  left: 50%;
+  top: 50%;
+  animation: cc-ring 1.2s ease-out forwards;
+}
+
+.cc-confetti {
+  animation-name: cc-confetti;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-pop,
+  .cc-rise,
+  .cc-ring,
+  .cc-confetti {
+    animation: none !important;
+  }
+
+  .cc-confetti {
+    display: none;
+  }
 }

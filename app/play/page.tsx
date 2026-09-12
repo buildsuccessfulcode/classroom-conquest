@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import AnswerCelebration from "@/components/AnswerCelebration";
 import ModeBadge from "@/components/ModeBadge";
 import QuestionBoard from "@/components/QuestionBoard";
 import QuestionCard from "@/components/QuestionCard";
 import { useGameState } from "@/hooks/useGameState";
 import { useTeamIdentity } from "@/hooks/useTeamIdentity";
 import { joinTeam, requestQuestion, submitAnswer } from "@/lib/backend";
-import { buildLeaderboard } from "@/lib/game";
+import { buildLeaderboard, MAX_ATTEMPTS_PER_SLOT } from "@/lib/game";
 import type { SlotQuestion } from "@/lib/types";
 
 interface Feedback {
@@ -24,6 +25,10 @@ export default function PlayPage() {
   const [error, setError] = useState<string | null>(null);
   const [turn, setTurn] = useState<SlotQuestion | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [celebration, setCelebration] = useState<{
+    gained: number;
+    questionPoints: number;
+  } | null>(null);
 
   const { state, loading, error: stateError, reload } = useGameState(
     identity?.sessionCode ?? null,
@@ -34,6 +39,12 @@ export default function PlayPage() {
     const id = window.setTimeout(() => setFeedback(null), 3500);
     return () => window.clearTimeout(id);
   }, [feedback]);
+
+  useEffect(() => {
+    if (!celebration) return;
+    const id = window.setTimeout(() => setCelebration(null), 2200);
+    return () => window.clearTimeout(id);
+  }, [celebration]);
 
   const handleJoin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -79,6 +90,7 @@ export default function PlayPage() {
 
   const handleAnswer = async (answer: string) => {
     if (!turn || !identity) return;
+    const questionPoints = turn.question.points;
     setBusy(true);
     setError(null);
     try {
@@ -90,6 +102,12 @@ export default function PlayPage() {
       });
       setFeedback({ correct: result.correct, message: result.message });
       setTurn(null);
+      if (result.correct) {
+        setCelebration({
+          gained: result.gainedPoints,
+          questionPoints,
+        });
+      }
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mengirim jawaban");
@@ -269,8 +287,8 @@ export default function PlayPage() {
             </p>
           ) : (
             <p className="text-center text-sm text-slate-500">
-              Pilih nomor soal. Jawaban salah tidak mengurangi poin dan bisa
-              dicoba lagi.
+              Pilih nomor soal. Jawaban salah akan mengurangi kesempatan
+              menjawab (maksimal {MAX_ATTEMPTS_PER_SLOT} kali per nomor).
             </p>
           )}
           {totalSlots > 0 ? (
@@ -290,19 +308,30 @@ export default function PlayPage() {
       {turn ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-4 sm:items-center">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                 Nomor {turn.slotNumber}
                 {turn.solved ? " · Sudah benar" : ""}
               </span>
-              <button
-                type="button"
-                onClick={() => setTurn(null)}
-                className="text-sm font-semibold text-slate-400"
-              >
-                {turn.solved ? "Tutup" : "Batal"}
-              </button>
+              {turn.solved || turn.locked ? (
+                <button
+                  type="button"
+                  onClick={() => setTurn(null)}
+                  className="text-sm font-semibold text-slate-400"
+                >
+                  Tutup
+                </button>
+              ) : (
+                <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  Wajib dijawab
+                </span>
+              )}
             </div>
+            {error ? (
+              <p className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                {error}
+              </p>
+            ) : null}
             {turn.solved ? (
               <p className="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
                 Soal ini sudah Anda jawab benar. Mode review (read-only).
@@ -324,6 +353,13 @@ export default function PlayPage() {
             />
           </div>
         </div>
+      ) : null}
+
+      {celebration ? (
+        <AnswerCelebration
+          points={celebration.gained}
+          questionPoints={celebration.questionPoints}
+        />
       ) : null}
     </main>
   );
