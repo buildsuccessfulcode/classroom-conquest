@@ -1,0 +1,67 @@
+[
+  {
+    "subject": "English",
+    "type": "MULTIPLE_CHOICE",
+    "difficulty": "EASY",
+    "question_text": "Which sentence is grammatically CORRECT for past activities?",
+    "metadata": {
+      "options": [
+        "She goes to school yesterday.",
+        "She went to school yesterday.",
+        "She is going to school yesterday.",
+        "She has go to school yesterday."
+      ]
+    },
+    "correct_answer": "She went to school yesterday.",
+    "points": 100
+  },
+  {
+    "subject": "Coding",
+    "type": "SHORT_ANSWER",
+    "difficulty": "MEDIUM",
+    "question_text": "Isi bagian kosong agar tipe data variabel terdeteksi sebagai array:",
+    "metadata": {
+      "code_snippet": "const data = [];\nconsole.log(Array.____(data)); // output: true"
+    },
+    "correct_answer": "isArray",
+    "points": 150
+  },
+  {
+    "subject": "DDPK",
+    "type": "MULTIPLE_CHOICE",
+    "difficulty": "EASY",
+    "question_text": "Tindakan utama dalam pencegahan kecelakaan kerja K3LH di laboratorium komputer adalah...",
+    "metadata": {
+      "options": [
+        "Membawa makanan ke dekat CPU",
+        "Memastikan manajemen kabel rapi dan grounded",
+        "Menyiram air saat terjadi korsleting",
+        "Meninggalkan kabel terkelupas"
+      ]
+    },
+    "correct_answer": "Memastikan manajemen kabel rapi dan grounded",
+    "points": 100
+  },
+  {
+    "subject": "English",
+    "type": "REARRANGE_WORDS",
+    "difficulty": "MEDIUM",
+    "question_text": "Susun menjadi kalimat yang benar.",
+    "metadata": {
+      "words": ["The", "students", "are", "reading", "a", "book"]
+    },
+    "correct_answer": "The students are reading a book",
+    "points": 150
+  },
+  {
+    "subject": "Coding",
+    "type": "MULTIPLE_CHOICE",
+    "difficulty": "HARD",
+    "question_text": "Struktur data mana yang menerapkan prinsip LIFO (Last In First Out)?",
+    "metadata": {
+      "options": ["Queue", "Stack", "Linked List", "Graph"]
+    },
+    "correct_answer": "Stack",
+    "points": 200
+  }
+]

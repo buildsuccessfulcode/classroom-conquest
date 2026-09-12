@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["docs/CONTEXT.md"],
+  "tool_output": {
+    "max_lines": 300,
+    "max_bytes": 16000
+  },
+  "compaction": {
+    "auto": true,
+    "tail_turns": 12
+  },
+  "permission": {
+    "edit": "allow",
+    "bash": {
+      "rm -rf *": "ask",
+      "git push*": "ask",
+      "*": "allow"
+    },
+    "webfetch": "allow"
+  }
+}
