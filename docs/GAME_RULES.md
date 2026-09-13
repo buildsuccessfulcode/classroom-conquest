@@ -7,7 +7,8 @@
 2. Guru memastikan bank soal untuk mapel tersebut tersedia (impor JSON bila perlu).
 3. Proyektor membuka `/display` dan memasukkan kode sesi.
 4. Setiap kelompok membuka `/play`, memasukkan kode sesi + nama tim. Sistem memberi warna unik.
-   Jumlah tim tidak dibatasi.
+   Jumlah tim tidak dibatasi. Bergabung hanya bisa saat sesi berstatus **LOBBY** (sebelum guru
+   menekan **Mulai**).
 5. Guru menekan **Mulai**. Sistem membuat snapshot bank soal menjadi nomor **1..N**
    (N = jumlah seluruh soal mapel saat itu).
 
@@ -68,8 +69,9 @@ Normalisasi jawaban: huruf kecil, rapikan spasi ganda, buang tanda baca tepi.
 
 ## 7. Reset & Akhir Sesi
 
-- **Reset**: menghapus semua `answers`, skor tim → 0, log dibersihkan, timer mulai ulang.
-  Snapshot nomor soal tetap sama.
+- **Reset**: menghapus semua `answers`, `activity_logs`, dan `teams` (peserta dikeluarkan),
+  `status = LOBBY`, `started_at = null`, timer berhenti. Snapshot nomor soal tetap sama.
+  Guru harus menekan **Mulai** lagi dan murid harus bergabung ulang.
 - **Akhiri**: `status = ENDED`, `ended_at = now()`. Papan menampilkan pemenang (read-only).
 - **Hapus**: menghapus sesi beserta tim, nomor soal, jawaban, dan log (cascade).
 

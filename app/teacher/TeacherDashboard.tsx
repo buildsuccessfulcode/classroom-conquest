@@ -128,7 +128,13 @@ export default function TeacherDashboard() {
     if (!selectedCode) return;
     void run(async () => {
       if (action === "start") await startSession(selectedCode);
-      if (action === "reset") await resetSession(selectedCode);
+      if (action === "reset") {
+        const confirmed = window.confirm(
+          "Reset sesi akan menghapus semua peserta, skor, dan log. Sesi kembali ke ruang tunggu dan harus dimulai ulang. Lanjutkan?",
+        );
+        if (!confirmed) return;
+        await resetSession(selectedCode);
+      }
       if (action === "end") await endSession(selectedCode);
       if (action === "delete") {
         await deleteSession(selectedCode);

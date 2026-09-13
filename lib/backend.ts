@@ -5,12 +5,12 @@ import { getBrowserClient } from "./supabase/client";
 import type {
   AnswerResult,
   GameState,
+  JoinTeamResult,
   PublicQuestion,
   QuestionGroupSummary,
   SeedQuestion,
   Session,
   SlotQuestion,
-  Team,
 } from "./types";
 
 export type BackendMode = "supabase" | "demo";
@@ -47,7 +47,7 @@ export async function listSessions(): Promise<Session[]> {
 export async function joinTeam(input: {
   sessionCode: string;
   teamName: string;
-}): Promise<{ team: Team }> {
+}): Promise<JoinTeamResult> {
   if (isSupabaseConfigured()) return actions.joinTeam(input);
   return demo.joinTeam(input);
 }

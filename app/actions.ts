@@ -26,6 +26,7 @@ import type {
   Answer,
   AnswerResult,
   GameState,
+  JoinTeamResult,
   LogKind,
   PublicQuestion,
   Question,
@@ -337,20 +338,25 @@ export async function listSessions(): Promise<Session[]> {
 export async function joinTeam(input: {
   sessionCode: string;
   teamName: string;
-}): Promise<{ team: Team }> {
+}): Promise<JoinTeamResult> {
   const client = sb();
   const session = await getSessionByCode(input.sessionCode);
-  if (!session) throw new Error("Sesi tidak ditemukan");
-  if (session.status === "ENDED") throw new Error("Sesi sudah berakhir");
+  if (!session) return { ok: false, error: "Sesi tidak ditemukan" };
+  if (session.status === "ENDED") {
+    return { ok: false, error: "Sesi sudah berakhir" };
+  }
+  if (session.status !== "LOBBY") {
+    return { ok: false, error: "Sesi sudah dimulai" };
+  }
   const name = input.teamName.trim();
-  if (!name) throw new Error("Nama tim wajib diisi");
+  if (!name) return { ok: false, error: "Nama tim wajib diisi" };
   const { data: existing } = await client
     .from("teams")
     .select("*")
     .eq("session_id", session.id)
     .ilike("team_name", name)
     .maybeSingle();
-  if (existing) return { team: existing as Team };
+  if (existing) return { ok: true, team: existing as Team };
   const { data: teams } = await client
     .from("teams")
     .select("color_code")
@@ -371,7 +377,7 @@ export async function joinTeam(input: {
   if (error) throw new Error(error.message);
   const team = data as Team;
   await addLog(session.id, team.id, `Tim ${team.team_name} bergabung`, "JOIN");
-  return { team };
+  return { ok: true, team };
 }
 
 export async function fetchGameState(
@@ -702,19 +708,23 @@ export async function resetSession(sessionCode: string): Promise<void> {
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
   await client.from("answers").delete().eq("session_id", session.id);
-  await client.from("teams").update({ score: 0 }).eq("session_id", session.id);
   await client.from("activity_logs").delete().eq("session_id", session.id);
-  const now = new Date().toISOString();
+  await client.from("teams").delete().eq("session_id", session.id);
   await client
     .from("sessions")
     .update({
-      status: "PLAYING",
+      status: "LOBBY",
       is_active: true,
-      started_at: now,
+      started_at: null,
       ended_at: null,
     })
     .eq("id", session.id);
-  await addLog(session.id, null, "Sesi direset. Skor dikosongkan.", "SYSTEM");
+  await addLog(
+    session.id,
+    null,
+    "Sesi direset. Peserta dan skor dikosongkan.",
+    "SYSTEM",
+  );
 }
 
 export async function endSession(sessionCode: string): Promise<void> {

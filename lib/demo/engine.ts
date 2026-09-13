@@ -14,6 +14,7 @@ import type {
   Answer,
   AnswerResult,
   GameState,
+  JoinTeamResult,
   LogKind,
   PublicQuestion,
   Question,
@@ -272,19 +273,24 @@ export async function listSessions(): Promise<Session[]> {
 export async function joinTeam(input: {
   sessionCode: string;
   teamName: string;
-}): Promise<{ team: Team }> {
+}): Promise<JoinTeamResult> {
   const db = load();
   const session = findSession(db, input.sessionCode);
-  if (!session) throw new Error("Sesi tidak ditemukan");
-  if (session.status === "ENDED") throw new Error("Sesi sudah berakhir");
+  if (!session) return { ok: false, error: "Sesi tidak ditemukan" };
+  if (session.status === "ENDED") {
+    return { ok: false, error: "Sesi sudah berakhir" };
+  }
+  if (session.status !== "LOBBY") {
+    return { ok: false, error: "Sesi sudah dimulai" };
+  }
   const name = input.teamName.trim();
-  if (!name) throw new Error("Nama tim wajib diisi");
+  if (!name) return { ok: false, error: "Nama tim wajib diisi" };
   const existing = db.teams.find(
     (t) =>
       t.session_id === session.id &&
       t.team_name.toLowerCase() === name.toLowerCase(),
   );
-  if (existing) return { team: existing };
+  if (existing) return { ok: true, team: existing };
   const used = db.teams
     .filter((t) => t.session_id === session.id)
     .map((t) => t.color_code);
@@ -299,7 +305,7 @@ export async function joinTeam(input: {
   db.teams.push(team);
   addLog(db, session.id, team.id, `Tim ${team.team_name} bergabung`, "JOIN");
   save(db);
-  return { team };
+  return { ok: true, team };
 }
 
 export async function fetchGameState(
@@ -598,15 +604,19 @@ export async function resetSession(sessionCode: string): Promise<void> {
   const session = findSession(db, sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
   db.answers = db.answers.filter((a) => a.session_id !== session.id);
-  for (const team of db.teams) {
-    if (team.session_id === session.id) team.score = 0;
-  }
   db.logs = db.logs.filter((l) => l.session_id !== session.id);
-  session.status = "PLAYING";
+  db.teams = db.teams.filter((t) => t.session_id !== session.id);
+  session.status = "LOBBY";
   session.is_active = true;
-  session.started_at = nowIso();
+  session.started_at = null;
   session.ended_at = null;
-  addLog(db, session.id, null, "Sesi direset. Skor dikosongkan.", "SYSTEM");
+  addLog(
+    db,
+    session.id,
+    null,
+    "Sesi direset. Peserta dan skor dikosongkan.",
+    "SYSTEM",
+  );
   save(db);
 }
 

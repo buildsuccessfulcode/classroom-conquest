@@ -89,6 +89,10 @@ interface AnswerResult {
   attemptsLeft: number
   locked: boolean
 }
+
+type JoinTeamResult =
+  | { ok: true; team: Team }
+  | { ok: false; error: string }
 ```
 
 `requestQuestion` mengacak `metadata.options` dan `metadata.words` di server. `attemptsLeft`
@@ -104,7 +108,7 @@ yaitu saat tim tersebut sudah menjawab benar nomor itu; selain itu `undefined`.
 | `listSessions` | — | `Session[]` |
 | `listQuestionGroups` | — | `QuestionGroupSummary[]` |
 | `listGroupQuestions` | `groupId: string` | `PublicQuestion[]` |
-| `joinTeam` | `{ sessionCode, teamName }` | `{ team: Team }` |
+| `joinTeam` | `{ sessionCode, teamName }` | `JoinTeamResult` |
 | `fetchGameState` | `sessionCode: string` | `GameState \| null` |
 | `requestQuestion` | `{ sessionCode, teamId, slotNumber }` | `SlotQuestion` |
 | `submitAnswer` | `{ sessionCode, teamId, slotNumber, answer }` | `AnswerResult` |
@@ -138,6 +142,9 @@ const res = await submitAnswer({ sessionCode: code, teamId, slotNumber: 2, answe
 - Action melempar `Error` dengan pesan berbahasa Indonesia yang aman ditampilkan
   (mis. `"Sesi tidak ditemukan"`, `"Soal ini sudah Anda jawab benar"`, `"Waktu sesi sudah habis"`).
 - `fetchGameState` mengembalikan `null` bila kode tidak ada (bukan throw).
+- `joinTeam` hanya berhasil saat sesi `LOBBY`; untuk sesi tidak ditemukan, `ENDED`, sudah
+  `PLAYING`, atau nama kosong ia mengembalikan `{ ok: false, error }` (bukan throw) agar pesan
+  dapat ditampilkan di klien.
 - `requestQuestion` / `submitAnswer` menolak bila sesi belum `PLAYING`, waktu habis, atau nomor
   tidak valid.
 - `requestQuestion` / `submitAnswer` menolak dengan `"Terlalu banyak permintaan. Tunggu sebentar."`
@@ -155,7 +162,9 @@ const res = await submitAnswer({ sessionCode: code, teamId, slotNumber: 2, answe
 
 `createSession` memanggil `ensureSlots`: mengambil seluruh soal dalam group (`order by created_at,
 id`), lalu membuat `session_questions` bernomor `1..N`. `startSession` dan `resetSession` tidak
-mengubah snapshot. Jika group kosong, action melempar error.
+mengubah snapshot. Jika group kosong, action melempar error. `resetSession` menghapus tim,
+jawaban, dan log, lalu mengembalikan sesi ke `LOBBY` (`started_at = null`) sehingga guru harus
+menekan **Mulai** lagi.
 
 ## 5. Dukungan Demo
 

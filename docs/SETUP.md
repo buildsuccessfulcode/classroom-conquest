@@ -57,10 +57,11 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...
 1. Guru buka `/teacher`, impor **group soal** lebih dulu bila belum ada.
 2. Guru buat sesi dengan memilih group (mis. `English Bab 1`, 30 menit), catat kode.
 3. Proyektor buka `/display`, masukkan kode.
-4. Murid buka `/play` di HP, masukkan kode + nama tim.
+4. Murid buka `/play` di HP, masukkan kode + nama tim (hanya bisa saat sesi masih **Menunggu**).
 5. Guru menekan **Mulai Sesi** saat siap; nomor soal 1..N sudah dibuat saat sesi dibuat.
 6. Tim memilih nomor, menjawab, papan ter-update otomatis.
-7. Guru **Akhiri Sesi** untuk mengunci hasil, atau **Reset** untuk main lagi.
+7. Guru **Akhiri Sesi** untuk mengunci hasil. **Reset** menghapus peserta/skor/log dan
+   mengembalikan sesi ke ruang tunggu, lalu guru harus menekan **Mulai** lagi.
 
 ## 6. Impor Bank Soal
 

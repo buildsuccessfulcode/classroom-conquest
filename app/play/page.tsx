@@ -85,6 +85,13 @@ function PlayInner() {
     identity?.sessionCode ?? null,
   );
 
+  const staleIdentity = Boolean(
+    identity &&
+      state &&
+      state.session.status !== "ENDED" &&
+      !state.teams.some((team) => team.id === identity.teamId),
+  );
+
   useEffect(() => {
     if (!celebration) return;
     const id = window.setTimeout(() => setCelebration(null), 2600);
@@ -121,11 +128,15 @@ function PlayInner() {
     setBusy(true);
     setError(null);
     try {
-      const { team } = await joinTeam({
+      const result = await joinTeam({
         sessionCode: joinCode,
         teamName: joinName,
       });
-      save(team, joinCode);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      save(result.team, joinCode);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal bergabung");
     } finally {
@@ -253,7 +264,12 @@ function PlayInner() {
     );
   }
 
-  if (!identity) {
+  if (!identity || staleIdentity) {
+    const notice =
+      error ??
+      (staleIdentity
+        ? `Tim Anda tidak lagi terdaftar di sesi ${identity?.sessionCode ?? ""}. Silakan gabung ulang.`
+        : null);
     return (
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-5 py-8">
         <header className="flex items-center justify-between">
@@ -306,9 +322,9 @@ function PlayInner() {
             {busy ? "Menghubungkan..." : "Gabung"}
             {!busy ? <ArrowRightIcon className="h-5 w-5" /> : null}
           </button>
-          {error ? (
+          {notice ? (
             <p className="rounded-2xl bg-cherry-soft px-3 py-2 text-sm font-bold text-cherry-dark">
-              {error}
+              {notice}
             </p>
           ) : null}
         </form>

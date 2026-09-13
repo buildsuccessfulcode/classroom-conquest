@@ -22,6 +22,8 @@ untuk mengumpulkan poin, papan proyektor realtime. PRD awal: `Classroom_Conquest
 - Poin = akumulasi `points` soal yang dijawab benar (EASY 100, MEDIUM 150, HARD 200).
 - Peringkat: poin desc → `lastAnsweredAt` asc (tim yang menjawab benar lebih dulu unggul) → nama.
 - Timer sesi tetap ada; jawaban setelah waktu habis ditolak.
+- Join hanya saat sesi `LOBBY`. Reset mengeluarkan peserta (hapus tim, jawaban, log) dan
+  mengembalikan status ke `LOBBY`; guru harus menekan **Mulai** lagi.
 
 ## Stack & Konvensi
 

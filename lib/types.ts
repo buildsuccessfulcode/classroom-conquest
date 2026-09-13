@@ -139,3 +139,7 @@ export interface AnswerResult {
   attemptsLeft: number;
   locked: boolean;
 }
+
+export type JoinTeamResult =
+  | { ok: true; team: Team }
+  | { ok: false; error: string };
