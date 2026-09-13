@@ -182,11 +182,59 @@ export function UploadIcon(props: IconProps) {
   );
 }
 
+export function BookIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z" />
+      <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5" />
+      <path d="M8 7.5h7" />
+    </svg>
+  );
+}
+
 export function LogOutIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
       <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
       <path d="M10 12h9M16 8l3 4-3 4" />
+    </svg>
+  );
+}
+
+export function HelpIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.7 9.3a2.6 2.6 0 0 1 5 .8c0 1.7-2.7 2-2.7 3.7" />
+      <circle cx="12" cy="17.2" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+export function LightbulbIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9.5 18h5M10.5 21h3" />
+      <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5.9 1.1 1 1.9v.3h5.2v-.3c.1-.8.4-1.4 1-1.9A6 6 0 0 0 12 3Z" />
+    </svg>
+  );
+}
+
+export function RocketIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4.6 16.4c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.8-.8.7-2 0-2.8-.8-.7-2.2-.6-3-.2Z" />
+      <path d="M12 15 9 12c.5-1.7 1.3-3.3 2.4-4.7C14 4.3 18 3.5 20.5 4c.5 2.5-.3 6.5-3.3 9.1-1.4 1.1-3 1.9-4.7 2.4Z" />
+      <path d="M9 12H5.6L7 9.4h3M12 15v3.4L14.6 17v-3" />
+      <circle cx="15.5" cy="8.5" r="1.4" />
     </svg>
   );
 }

@@ -21,6 +21,7 @@ mengumpulkan poin. Papan proyektor diperbarui secara real-time.
 | Path | Peran | Ringkasan |
 | :--- | :--- | :--- |
 | `/` | Umum | Landing + pemilih peran |
+| `/rules` | Umum | Aturan permainan lengkap + panduan guru |
 | `/teacher` | Guru | Buat sesi, impor bank soal, monitor, reset, akhiri |
 | `/play` | Murid | Join tim, pilih nomor, jawab soal, review |
 | `/display` | Proyektor | Papan nomor, leaderboard, live log, timer (`?code=XXXXXX`) |

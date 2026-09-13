@@ -1,12 +1,12 @@
 "use client";
 
-import { useNow } from "@/hooks/useNow";
+import { useServerNow } from "@/hooks/useServerNow";
 import { formatClock, remainingSeconds } from "@/lib/game";
 import type { Session } from "@/lib/types";
 import { FlameIcon } from "./icons";
 
 export default function TimeWarningBanner({ session }: { session: Session }) {
-  const now = useNow();
+  const now = useServerNow();
   const seconds = remainingSeconds(session, now) ?? 0;
 
   if (session.status !== "PLAYING" || seconds > 60 || seconds <= 0) {

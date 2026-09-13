@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useNow } from "@/hooks/useNow";
+import { useServerNow } from "@/hooks/useServerNow";
 import { formatClock, remainingSeconds } from "@/lib/game";
 import type { Session } from "@/lib/types";
 import { ClockIcon } from "./icons";
@@ -25,7 +25,7 @@ export default function CountdownTimer({
   showProgress = false,
   onExpire,
 }: CountdownTimerProps) {
-  const now = useNow();
+  const now = useServerNow();
   const seconds = remainingSeconds(session, now) ?? 0;
   const firedRef = useRef(false);
   const total = session.duration_minutes * 60;
@@ -74,10 +74,10 @@ export default function CountdownTimer({
         <div className="h-2 w-full overflow-hidden rounded-full bg-cloud">
           <div
             className={[
-              "h-full rounded-full transition-all duration-500",
+              "h-full w-full origin-left rounded-full transition-transform duration-500",
               urgent ? "bg-cherry" : "bg-gradient-to-r from-ocean to-brand",
             ].join(" ")}
-            style={{ width: `${progress * 100}%` }}
+            style={{ transform: `scaleX(${progress})` }}
           />
         </div>
       ) : null}

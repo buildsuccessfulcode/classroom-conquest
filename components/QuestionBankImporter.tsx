@@ -75,7 +75,7 @@ export default function QuestionBankImporter({
 
   return (
     <section className="cc-card p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="cc-display text-xl font-extrabold text-ink">
           Impor Bank Soal
         </h2>

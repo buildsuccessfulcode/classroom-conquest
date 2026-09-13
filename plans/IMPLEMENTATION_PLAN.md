@@ -34,28 +34,32 @@ Dokumen teknis pendukung: [`docs/`](../docs/).
 ```
 app/
   layout.tsx / page.tsx / globals.css
-  teacher/page.tsx           # dashboard guru (client)
-  play/page.tsx              # antarmuka murid (client)
-  display/page.tsx           # papan proyektor (client, ?code=XXXXXX)
-  actions.ts                 # server actions (mutasi)
+  teacher/page.tsx           # cek cookie (server) -> TeacherDashboard (client)
+  play/page.tsx              # shell server -> PlayClient.tsx (client)
+  display/page.tsx           # shell server -> DisplayClient.tsx (client, ?code=XXXXXX)
+  actions.ts                 # server actions (mutasi, RPC)
 components/
   QuestionBoard.tsx          # papan nomor soal (display & play)
   Leaderboard.tsx            # peringkat poin + progres
   ActivityLog.tsx
   QuestionCard.tsx           # 3 tipe soal + mode read-only (review)
   QuestionBankImporter.tsx   # impor file/paste JSON
+  Skeleton.tsx / RuntimeOptimizations.tsx
   ModeBadge.tsx
 hooks/
-  useGameState.ts            # state + realtime terpadu
+  useGameState.ts            # state + Broadcast + delta + rekonsiliasi
+  useServerNow.ts            # clock global bersama
   useLocalStorage.ts         # useSyncExternalStore
-  useTeamIdentity.ts / useNow.ts
+  useTeamIdentity.ts
 lib/
   types.ts / game.ts / questions.ts / backend.ts / config.ts
-  colors.ts / format.ts / seed-questions.ts
+  clock.ts / feedback.ts / colors.ts / format.ts
   supabase/{client,server}.ts
   demo/engine.ts
+public/
+  sw.js                      # service worker cache aset statis
 supabase/
-  schema.sql / seed.sql / sample-questions.json
+  schema.sql / migration_optimizations.sql / seed.sql / sample-questions.json
 docs/ plans/
 ```
 
@@ -93,6 +97,28 @@ docs/ plans/
 - [x] `npm run build`
 - [x] Smoke test dev (semua rute 200, mode demo)
 
+### Fase 5 — Optimasi performa realtime (Sprint 1–2)
+- [x] Realtime hybrid: trigger `realtime.send` (`answer.created`, `team.joined`,
+  `session.updated`) + hapus `postgres_changes`; `activity_logs` tidak di-broadcast.
+- [x] `useGameState`: koalesensi 200 ms, guard urutan, delta patch, rekonsiliasi 15 s,
+  refetch saat fokus/`online`.
+- [x] Clock server: `lib/clock.ts` + `hooks/useServerNow.ts` (satu interval global);
+  `CountdownTimer`/`TimeWarningBanner` pakai `serverNow`, progress pakai `transform`.
+- [x] RPC atomik `request_question` + `submit_answer` (fix race skor, pangkas round-trip).
+- [x] Index tambahan: `sessions(status)`, `activity_logs(session_id, team_id, created_at desc)`,
+  `questions(group_id, difficulty)`.
+- [x] `app/actions.ts`: buang `SELECT *`, hapus helper mati, RPC.
+- [x] `lib/backend.ts`: `subscribe` async + tipe `RealtimeEvent`; Supabase `dynamic import`.
+- [x] Next: format gambar AVIF/WebP, `optimizePackageImports`, `@next/bundle-analyzer`
+  (`npm run analyze`); font dipangkas.
+- [x] Server/Client split `/play` & `/display`; `force-static` landing + rules;
+  `AnswerFeedback` di-`dynamic import`.
+- [x] Optimistic UI (tutup modal instan) + retry 3x + suara/haptic lokal (`lib/feedback.ts`).
+- [x] Mode Lite (`RuntimeOptimizations` → `data-lite`) + skeleton screen.
+- [x] Service worker `public/sw.js` (cache aset statis + fallback navigasi offline).
+- [x] Migrasi incremental `supabase/migration_optimizations.sql`.
+- [x] Perbarui CONTEXT, ARCHITECTURE, DATABASE, API, plans.
+
 ## 5. Rencana Lanjutan (opsional)
 
 - QR code di `/display` menuju `/play?code=XXXXXX` dan `/play` membaca `?code=`.
@@ -100,13 +126,16 @@ docs/ plans/
 - Ekspor hasil akhir (CSV) untuk dokumentasi nilai.
 - Autentikasi guru (PIN / Supabase Auth) bila perlu proteksi.
 - Dukungan impor CSV selain JSON.
+- Presence Supabase untuk indikator pemain online di room.
+- IndexedDB untuk cache soal + offline-first penuh (Sprint 3).
 
 ## 6. Risiko & Mitigasi
 
 | Risiko | Mitigasi |
 | :--- | :--- |
-| Kuota Supabase free-tier | Query ringan, realtime 3 tabel, tanpa polling. |
-| Jawaban bocor ke client | `correct_answer` tidak pernah dikirim; validasi server. |
-| RLS terlalu terbuka | Anon hanya SELECT; semua tulis via service role. |
+| Kuota Supabase free-tier | Broadcast (bukan `postgres_changes`), rekonsiliasi 15 s, tanpa polling. |
+| Jawaban bocor ke client | `correct_answer` tidak pernah dikirim; validasi di RPC server. |
+| RLS terlalu terbuka | Anon hanya SELECT; RPC di-revoke dari anon; semua tulis via service role. |
 | Snapshot soal berubah | Snapshot dibuat sekali saat mulai; reset tidak mengubahnya. |
 | Next 16 breaking changes | Selalu `await params`/`cookies()`; route handler dinamis default. |
+| Broadcast tidak terkirim | Rekonsiliasi berkala + refetch saat fokus/`online` menjaga state. |

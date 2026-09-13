@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
@@ -10,6 +11,8 @@ import {
   TargetIcon,
   TrophyIcon,
 } from "@/components/icons";
+
+export const dynamic = "force-static";
 
 const ROLES = [
   {
@@ -49,8 +52,18 @@ export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-5 py-10">
       <header className="flex items-center justify-between gap-4">
-        <span className="cc-display text-lg font-extrabold text-brand-dark">
-          Classroom Conquest
+        <span className="flex items-center gap-2">
+          <Image
+            src="/logo-square.png"
+            alt=""
+            width={36}
+            height={36}
+            priority
+            className="h-9 w-9"
+          />
+          <span className="cc-display text-lg font-extrabold text-brand-dark">
+            Classroom Conquest
+          </span>
         </span>
         <ModeBadge />
       </header>
@@ -127,9 +140,18 @@ export default function Home() {
       </section>
 
       <section className="cc-card p-6">
-        <h2 className="cc-display mb-3 text-xl font-extrabold text-ink">
-          Cara Bermain Singkat
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="cc-display text-xl font-extrabold text-ink">
+            Cara Bermain Singkat
+          </h2>
+          <Link
+            href="/rules"
+            className="flex items-center gap-1 text-sm font-extrabold text-ocean-dark"
+          >
+            Aturan lengkap
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </div>
         <ol className="flex flex-col gap-2 text-sm font-semibold text-ink-soft">
           {[
             "Guru membuat sesi dan membagikan kode 6 karakter.",

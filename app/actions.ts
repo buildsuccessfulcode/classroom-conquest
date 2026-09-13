@@ -14,9 +14,6 @@ import {
   MAX_ATTEMPTS_PER_SLOT,
   RATE_LIMIT_MAX_REQUESTS,
   RATE_LIMIT_WINDOW_MS,
-  countWrongAttempts,
-  isAnswerCorrect,
-  isRapidFire,
   pointsFor,
   shuffle,
 } from "@/lib/game";
@@ -40,6 +37,16 @@ import type {
 } from "@/lib/types";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+const SESSION_COLUMNS =
+  "id, session_code, group_id, subject_name, is_active, status, duration_minutes, started_at, ended_at, created_at";
+const TEAM_COLUMNS =
+  "id, session_id, team_name, color_code, score, joined_at, created_at";
+const SLOT_COLUMNS = "id, session_id, slot_number, question_id, created_at";
+const ANSWER_COLUMNS =
+  "id, session_id, team_id, slot_number, question_id, points, answered_at";
+const LOG_COLUMNS = "id, session_id, team_id, message, kind, created_at";
+const GROUP_COLUMNS = "id, name, subject, created_at";
 
 const rateBuckets = new Map<string, number[]>();
 
@@ -113,24 +120,6 @@ function withShuffledChoices(question: PublicQuestion): PublicQuestion {
   return { ...question, metadata: next };
 }
 
-async function countWrongAttemptsForSlot(
-  client: ReturnType<typeof sb>,
-  sessionId: string,
-  teamId: string,
-  slotNumber: number,
-): Promise<number> {
-  const { data, error } = await client
-    .from("activity_logs")
-    .select("message")
-    .eq("session_id", sessionId)
-    .eq("team_id", teamId);
-  if (error) throw new Error(error.message);
-  return countWrongAttempts(
-    (data as { message: string }[] | null) ?? [],
-    slotNumber,
-  );
-}
-
 function isSessionTimeUp(session: Session): boolean {
   if (session.status === "ENDED") return true;
   if (!session.started_at) return false;
@@ -148,7 +137,7 @@ async function autoEndIfExpired(session: Session): Promise<Session> {
     .update({ status: "ENDED", is_active: false, ended_at: now })
     .eq("id", session.id)
     .eq("status", "PLAYING")
-    .select("*")
+    .select(SESSION_COLUMNS)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return session;
@@ -164,41 +153,11 @@ async function autoEndIfExpired(session: Session): Promise<Session> {
 async function getSessionByCode(code: string): Promise<Session | null> {
   const { data, error } = await sb()
     .from("sessions")
-    .select("*")
+    .select(SESSION_COLUMNS)
     .eq("session_code", code.trim().toUpperCase())
     .maybeSingle();
   if (error) throw new Error(error.message);
   return (data as Session | null) ?? null;
-}
-
-async function getTeam(
-  client: ReturnType<typeof sb>,
-  sessionId: string,
-  teamId: string,
-): Promise<Team | null> {
-  const { data, error } = await client
-    .from("teams")
-    .select("*")
-    .eq("id", teamId)
-    .eq("session_id", sessionId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as Team | null) ?? null;
-}
-
-async function getSlot(
-  client: ReturnType<typeof sb>,
-  sessionId: string,
-  slotNumber: number,
-): Promise<SessionSlot | null> {
-  const { data, error } = await client
-    .from("session_questions")
-    .select("*")
-    .eq("session_id", sessionId)
-    .eq("slot_number", slotNumber)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as SessionSlot | null) ?? null;
 }
 
 async function addLog(
@@ -285,7 +244,7 @@ export async function createSession(input: {
   if (!groupId) throw new Error("Group soal wajib dipilih");
   const { data: groupData, error: groupError } = await client
     .from("question_groups")
-    .select("*")
+    .select(GROUP_COLUMNS)
     .eq("id", groupId)
     .maybeSingle();
   if (groupError) throw new Error(groupError.message);
@@ -305,7 +264,7 @@ export async function createSession(input: {
         status: "LOBBY",
         is_active: true,
       })
-      .select("*")
+      .select(SESSION_COLUMNS)
       .single();
     if (error) {
       if (error.code === "23505") continue;
@@ -328,7 +287,7 @@ export async function listSessions(): Promise<Session[]> {
   await requireTeacher();
   const { data, error } = await sb()
     .from("sessions")
-    .select("*")
+    .select(SESSION_COLUMNS)
     .order("created_at", { ascending: false })
     .limit(20);
   if (error) throw new Error(error.message);
@@ -352,7 +311,7 @@ export async function joinTeam(input: {
   if (!name) return { ok: false, error: "Nama tim wajib diisi" };
   const { data: existing } = await client
     .from("teams")
-    .select("*")
+    .select(TEAM_COLUMNS)
     .eq("session_id", session.id)
     .ilike("team_name", name)
     .maybeSingle();
@@ -372,7 +331,7 @@ export async function joinTeam(input: {
       color_code: pickTeamColor(used),
       score: 0,
     })
-    .select("*")
+    .select(TEAM_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
   const team = data as Team;
@@ -390,22 +349,22 @@ export async function fetchGameState(
   const [teamsRes, slotsRes, answersRes, logsRes] = await Promise.all([
     client
       .from("teams")
-      .select("*")
+      .select(TEAM_COLUMNS)
       .eq("session_id", activeSession.id)
       .order("joined_at", { ascending: true }),
     client
       .from("session_questions")
-      .select("*")
+      .select(SLOT_COLUMNS)
       .eq("session_id", activeSession.id)
       .order("slot_number", { ascending: true }),
     client
       .from("answers")
-      .select("*")
+      .select(ANSWER_COLUMNS)
       .eq("session_id", activeSession.id)
       .order("answered_at", { ascending: true }),
     client
       .from("activity_logs")
-      .select("*")
+      .select(LOG_COLUMNS)
       .eq("session_id", activeSession.id)
       .order("created_at", { ascending: false })
       .limit(50),
@@ -426,45 +385,27 @@ export async function requestQuestion(input: {
   teamId: string;
   slotNumber: number;
 }): Promise<SlotQuestion> {
-  const client = sb();
-  const session = await getSessionByCode(input.sessionCode);
-  if (!session) throw new Error("Sesi tidak ditemukan");
-  if (session.status === "ENDED") throw new Error("Sesi sudah berakhir");
-  if (session.status !== "PLAYING") throw new Error("Sesi belum dimulai");
-  if (isSessionTimeUp(session)) throw new Error("Waktu sesi sudah habis");
-  const team = await getTeam(client, session.id, input.teamId);
-  if (!team) throw new Error("Tim tidak terdaftar di sesi ini");
-  enforceRateLimit(`${session.id}:${team.id}`);
-  const slot = await getSlot(client, session.id, input.slotNumber);
-  if (!slot) throw new Error("Nomor soal tidak ditemukan");
-  const { data: questionData, error } = await client
-    .from("questions")
-    .select("*")
-    .eq("id", slot.question_id)
-    .maybeSingle();
+  enforceRateLimit(`${input.sessionCode}:${input.teamId}`);
+  const { data, error } = await sb().rpc("request_question", {
+    p_session_code: input.sessionCode,
+    p_team_id: input.teamId,
+    p_slot_number: input.slotNumber,
+  });
   if (error) throw new Error(error.message);
-  const question = questionData as Question | null;
-  if (!question) throw new Error("Soal tidak ditemukan");
-  const { data: existing } = await client
-    .from("answers")
-    .select("id")
-    .eq("session_id", session.id)
-    .eq("team_id", team.id)
-    .eq("slot_number", input.slotNumber)
-    .maybeSingle();
-  const wrongAttempts = await countWrongAttemptsForSlot(
-    client,
-    session.id,
-    team.id,
-    input.slotNumber,
-  );
+  const row = data as {
+    question: Question;
+    solved: boolean;
+    wrong_attempts: number;
+  } | null;
+  if (!row || !row.question) throw new Error("Soal tidak ditemukan");
+  const wrongAttempts = row.wrong_attempts ?? 0;
   return {
     slotNumber: input.slotNumber,
-    question: withShuffledChoices(toPublicQuestion(question)),
-    solved: Boolean(existing),
+    question: withShuffledChoices(toPublicQuestion(row.question)),
+    solved: row.solved,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
     locked: wrongAttempts >= MAX_ATTEMPTS_PER_SLOT,
-    correctAnswer: existing ? question.correct_answer : undefined,
+    correctAnswer: row.solved ? row.question.correct_answer : undefined,
   };
 }
 
@@ -474,120 +415,17 @@ export async function submitAnswer(input: {
   slotNumber: number;
   answer: string;
 }): Promise<AnswerResult> {
-  const client = sb();
-  const session = await getSessionByCode(input.sessionCode);
-  if (!session) throw new Error("Sesi tidak ditemukan");
-  if (session.status === "ENDED") throw new Error("Sesi sudah berakhir");
-  if (session.status !== "PLAYING") throw new Error("Sesi belum dimulai");
-  if (isSessionTimeUp(session)) throw new Error("Waktu sesi sudah habis");
-  const team = await getTeam(client, session.id, input.teamId);
-  if (!team) throw new Error("Tim tidak terdaftar di sesi ini");
-  enforceRateLimit(`${session.id}:${team.id}`);
-  const slot = await getSlot(client, session.id, input.slotNumber);
-  if (!slot) throw new Error("Nomor soal tidak ditemukan");
-  const { data: existing } = await client
-    .from("answers")
-    .select("id")
-    .eq("session_id", session.id)
-    .eq("team_id", team.id)
-    .eq("slot_number", input.slotNumber)
-    .maybeSingle();
-  if (existing) throw new Error("Soal ini sudah Anda jawab benar");
-  const priorWrong = await countWrongAttemptsForSlot(
-    client,
-    session.id,
-    team.id,
-    input.slotNumber,
-  );
-  if (priorWrong >= MAX_ATTEMPTS_PER_SLOT) {
-    return {
-      correct: false,
-      message: `Nomor ${input.slotNumber} terkunci untuk tim Anda.`,
-      gainedPoints: 0,
-      attemptsLeft: 0,
-      locked: true,
-    };
-  }
-  const { data: questionData } = await client
-    .from("questions")
-    .select("*")
-    .eq("id", slot.question_id)
-    .maybeSingle();
-  const question = questionData as Question | null;
-  if (!question) throw new Error("Soal tidak ditemukan");
-  if (!isAnswerCorrect(question, input.answer)) {
-    const attempt = priorWrong + 1;
-    const attemptsLeft = Math.max(0, MAX_ATTEMPTS_PER_SLOT - attempt);
-    await addLog(
-      session.id,
-      team.id,
-      `Tim ${team.team_name} menjawab salah nomor ${input.slotNumber} (percobaan ${attempt}/${MAX_ATTEMPTS_PER_SLOT})`,
-      "INFO",
-    );
-    return {
-      correct: false,
-      message:
-        attemptsLeft > 0
-          ? `Jawaban belum tepat. Sisa percobaan: ${attemptsLeft}`
-          : `Jawaban belum tepat. Nomor ${input.slotNumber} terkunci untuk tim Anda.`,
-      gainedPoints: 0,
-      attemptsLeft,
-      locked: attemptsLeft <= 0,
-    };
-  }
-  const { data: lastAnswer } = await client
-    .from("answers")
-    .select("answered_at")
-    .eq("session_id", session.id)
-    .eq("team_id", team.id)
-    .order("answered_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const rapidFire = isRapidFire(
-    (lastAnswer as { answered_at: string } | null)?.answered_at ?? null,
-    Date.now(),
-  );
-  const gained =
-    question.points > 0 ? question.points : pointsFor(question.difficulty);
-  const { error: insertError } = await client.from("answers").insert({
-    session_id: session.id,
-    team_id: team.id,
-    slot_number: input.slotNumber,
-    question_id: question.id,
-    points: gained,
-    answered_at: new Date().toISOString(),
+  enforceRateLimit(`${input.sessionCode}:${input.teamId}`);
+  const { data, error } = await sb().rpc("submit_answer", {
+    p_session_code: input.sessionCode,
+    p_team_id: input.teamId,
+    p_slot_number: input.slotNumber,
+    p_answer: input.answer,
   });
-  if (insertError) {
-    if (insertError.code === "23505") {
-      throw new Error("Soal ini sudah Anda jawab benar");
-    }
-    throw new Error(insertError.message);
-  }
-  await client
-    .from("teams")
-    .update({ score: team.score + gained })
-    .eq("id", team.id);
-  await addLog(
-    session.id,
-    team.id,
-    `Tim ${team.team_name} menjawab benar nomor ${input.slotNumber} (+${gained})`,
-    "CLAIM",
-  );
-  if (priorWrong >= MAX_ATTEMPTS_PER_SLOT - 1 || rapidFire) {
-    await addLog(
-      session.id,
-      team.id,
-      `[PERINGATAN] Tim ${team.team_name} nomor ${input.slotNumber} dijawab benar dengan indikasi mencurigakan`,
-      "ERROR",
-    );
-  }
-  return {
-    correct: true,
-    message: `Benar! +${gained} poin`,
-    gainedPoints: gained,
-    attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - priorWrong),
-    locked: false,
-  };
+  if (error) throw new Error(error.message);
+  const row = data as AnswerResult | null;
+  if (!row) throw new Error("Gagal memproses jawaban");
+  return row;
 }
 
 export async function reportFocusEvent(input: {
@@ -601,7 +439,13 @@ export async function reportFocusEvent(input: {
   if (!session) return;
   if (session.status !== "PLAYING") return;
   if (isSessionTimeUp(session)) return;
-  const team = await getTeam(client, session.id, input.teamId);
+  const { data: teamData } = await client
+    .from("teams")
+    .select(TEAM_COLUMNS)
+    .eq("id", input.teamId)
+    .eq("session_id", session.id)
+    .maybeSingle();
+  const team = teamData as Team | null;
   if (!team) return;
   enforceRateLimit(`${session.id}:${team.id}:focus`);
   const awaySeconds = Math.max(1, Math.round(input.awayMs / 1000));
@@ -634,7 +478,7 @@ export async function importQuestions(input: {
   if (list.length === 0) throw new Error("Tidak ada soal untuk diimpor");
   const { data: existing, error: findError } = await client
     .from("question_groups")
-    .select("*")
+    .select(GROUP_COLUMNS)
     .ilike("name", groupName)
     .maybeSingle();
   if (findError) throw new Error(findError.message);
@@ -644,7 +488,7 @@ export async function importQuestions(input: {
     const { data, error } = await client
       .from("question_groups")
       .insert({ name: groupName, subject })
-      .select("*")
+      .select(GROUP_COLUMNS)
       .single();
     if (error) throw new Error(error.message);
     group = data as QuestionGroup;

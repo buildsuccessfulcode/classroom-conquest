@@ -155,9 +155,9 @@ export default function TeacherDashboard() {
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Mascot mood="happy" size={56} />
-          <div>
+          <div className="min-w-0">
             <Link
               href="/"
               className="inline-flex items-center gap-1 text-xs font-extrabold text-ocean-dark"
@@ -165,12 +165,12 @@ export default function TeacherDashboard() {
               <ArrowLeftIcon className="h-3.5 w-3.5" />
               Beranda
             </Link>
-            <h1 className="cc-display text-3xl font-extrabold text-ink">
+            <h1 className="cc-display text-2xl font-extrabold text-ink sm:text-3xl">
               Dashboard Guru
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ModeBadge />
           <button
             type="button"
@@ -196,8 +196,8 @@ export default function TeacherDashboard() {
 
       {state ? <TimeWarningBanner session={state.session} /> : null}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
-        <div className="flex flex-col gap-6">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_1.4fr]">
+        <div className="flex min-w-0 flex-col gap-6">
           <section className="cc-card p-5">
             <h2 className="cc-display mb-4 text-xl font-extrabold text-ink">
               Buat Sesi Baru
@@ -208,7 +208,7 @@ export default function TeacherDashboard() {
                 <select
                   value={groupId}
                   onChange={(event) => setGroupId(event.target.value)}
-                  className="rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                  className="w-full min-w-0 rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
                   required
                 >
                   <option value="" disabled>
@@ -229,7 +229,7 @@ export default function TeacherDashboard() {
                   max={120}
                   value={duration}
                   onChange={(event) => setDuration(Number(event.target.value))}
-                  className="rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                  className="w-full min-w-0 rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
                 />
               </label>
               <p className="text-xs font-semibold text-ink-soft">
@@ -271,19 +271,19 @@ export default function TeacherDashboard() {
                       type="button"
                       onClick={() => setSelectedCode(session.session_code)}
                       className={[
-                        "flex w-full items-center justify-between gap-3 rounded-2xl border-2 px-3 py-2.5 text-left text-sm transition",
+                        "flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border-2 px-3 py-2.5 text-left text-sm transition",
                         selectedCode === session.session_code
                           ? "border-ocean bg-ocean-soft"
                           : "border-cloud bg-white hover:border-ocean/60",
                       ].join(" ")}
                     >
-                      <span className="font-mono font-extrabold text-ink">
+                      <span className="shrink-0 font-mono font-extrabold text-ink">
                         {session.session_code}
                       </span>
-                      <span className="truncate font-semibold text-ink-soft">
+                      <span className="min-w-0 flex-1 truncate font-semibold text-ink-soft">
                         {session.subject_name}
                       </span>
-                      <span className="text-xs font-bold text-ink-soft">
+                      <span className="shrink-0 text-xs font-bold text-ink-soft">
                         {formatDateTime(session.created_at)}
                       </span>
                     </button>
@@ -294,7 +294,7 @@ export default function TeacherDashboard() {
           </section>
         </div>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           <section className="cc-card p-5">
             {!selectedCode ? (
               <p className="rounded-2xl bg-snow px-4 py-10 text-center text-sm font-bold text-ink-soft">
@@ -378,8 +378,8 @@ export default function TeacherDashboard() {
                     &ldquo;Mulai&rdquo;.
                   </p>
                 ) : (
-                  <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
-                    <div>
+                  <div className="grid min-w-0 gap-4 md:grid-cols-[1.2fr_1fr]">
+                    <div className="min-w-0">
                       <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
                         Papan Nomor ({state.slots.length} soal)
                       </h3>
@@ -390,7 +390,7 @@ export default function TeacherDashboard() {
                         answers={state.answers}
                       />
                     </div>
-                    <div className="flex flex-col gap-4">
+                    <div className="flex min-w-0 flex-col gap-4">
                       <div>
                         <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
                           Peringkat

@@ -6,8 +6,7 @@
 
 Classroom Conquest: gamifikasi kelas berbasis kelompok. Guru membuat sesi, papan menampilkan
 **nomor soal 1..N** (N = seluruh bank soal mapel), tiap tim menjawab semua nomor secara mandiri
-untuk mengumpulkan poin, papan proyektor realtime. PRD awal: `Classroom_Conquest_PRD_and_Schema.md`
-(sebagian sudah tidak relevan — konsep wilayah diganti nomor soal).
+untuk mengumpulkan poin, papan proyektor realtime.
 
 ## Konsep Permainan (versi terkini)
 
@@ -39,17 +38,23 @@ untuk mengumpulkan poin, papan proyektor realtime. PRD awal: `Classroom_Conquest
 
 ```
 app/actions.ts         mutasi (create/join/start/request/submit/reset/end/import/delete)
-app/{teacher,play,display}/page.tsx  halaman client
+app/{play,display}/page.tsx  shell server -> {Play,Display}Client.tsx (client)
+app/teacher/page.tsx   cek cookie (server) -> TeacherDashboard (client)
+app/rules/page.tsx     halaman aturan publik (server, force-static)
 components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, form,
-                       QuestionBankImporter, QuestionGroupList
-hooks/useGameState.ts  state + realtime (Supabase atau demo)
+                       QuestionBankImporter, QuestionGroupList, Skeleton, RuntimeOptimizations
+hooks/useGameState.ts  state + realtime Broadcast + delta + rekonsiliasi
+hooks/useServerNow.ts  clock global bersama (offset server)
 hooks/useLocalStorage.ts  useSyncExternalStore untuk localStorage
 lib/game.ts            leaderboard, validasi jawaban, poin, timer
+lib/clock.ts           offset waktu server (serverNow)
+lib/feedback.ts        suara WebAudio + haptic lokal
 lib/questions.ts       validasi impor bank soal (parseQuestionBank)
-lib/backend.ts         fasad supabase/demo
-lib/supabase/{client,server}.ts
+lib/backend.ts         fasad supabase/demo + tipe RealtimeEvent
+lib/supabase/{client,server}.ts  client di-dynamic import
 lib/demo/engine.ts     engine demo (localStorage v3)
-supabase/schema.sql    skema + RLS + realtime
+supabase/schema.sql    skema + RLS + Broadcast + RPC
+supabase/migration_optimizations.sql  migrasi untuk DB yang sudah ada
 docs/                  dokumentasi (baca sesuai kebutuhan)
 plans/                 rencana
 ```
@@ -69,6 +74,7 @@ npm run dev            # dev
 npm run lint           # eslint
 npx tsc --noEmit       # typecheck
 npm run build          # build
+npm run analyze        # bundle analyzer
 ```
 
 ## Aturan Penting
@@ -76,14 +82,19 @@ npm run build          # build
 1. `questions.correct_answer` TIDAK BOLEH sampai ke client saat bermain. Gunakan
    `PublicQuestion`. Pengecualian mode review: `SlotQuestion.correctAnswer` hanya diisi bila
    tim itu sudah menjawab benar nomor tersebut.
-2. Anon hanya `SELECT`; semua tulis lewat service role di server.
-3. Realtime hanya `answers`, `teams`, `activity_logs`.
+2. Anon hanya `SELECT`; semua tulis lewat service role di server. RPC `request_question` dan
+   `submit_answer` di-`revoke` dari anon (hanya `service_role`).
+3. Realtime memakai **Broadcast** dari trigger DB (`answer.created`, `team.joined`,
+   `session.updated`) ke topik `game-<session_id>`; `activity_logs` tidak di-broadcast.
 4. Snapshot nomor soal dibuat saat `createSession`; start/reset tidak mengubah snapshot.
 5. Hapus group/soal ditolak bila masih dipakai sesi.
-6. Perubahan skema harus disinkronkan ke `supabase/schema.sql` + `docs/DATABASE.md`.
+6. Perubahan skema harus disinkronkan ke `supabase/schema.sql`,
+   `supabase/migration_optimizations.sql`, + `docs/DATABASE.md`.
 7. Anti-kecurangan tanpa tabel baru: batas percobaan dihitung dari `activity_logs`
-   (`lib/game.ts`), opsi/kata diacak di server, anomali dilog kind `ERROR`, rate limit
-   per-instance di `app/actions.ts` + `lib/demo/engine.ts`.
+   (`lib/game.ts` + RPC `submit_answer`), opsi/kata diacak di server, anomali dilog kind `ERROR`,
+   rate limit per-instance di `app/actions.ts` + `lib/demo/engine.ts`.
+8. Timer server-authoritative: sinkronkan `syncServerClock(state.serverTime)`, tampilkan via
+   `useServerNow()`; jangan pakai `Date.now()` langsung untuk sisa waktu.
 
 ## Detail Rujukan
 

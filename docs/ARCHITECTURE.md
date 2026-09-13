@@ -64,48 +64,54 @@ browser (satu perangkat). Untuk kelas nyata (banyak HP), gunakan Supabase.
 ```
 Murid klik nomor
   -> backend.requestQuestion(code, teamId, slotNumber)
-       server: rate limit, ambil soal dari session_questions, buang correct_answer,
-               acak opsi/kata, hitung sisa percobaan + status kunci, tandai solved
+       Server Action -> RPC request_question: satu round-trip, ambil soal + solved +
+       wrong_attempts, buang correct_answer, acak opsi/kata
   -> QuestionCard menampilkan soal (mode jawab, review, atau terkunci)
   -> murid submit
+  -> UI langsung: tutup modal, suara + haptic lokal, state "memeriksa" (optimistis)
   -> backend.submitAnswer(...)
-       server: rate limit, tolak bila nomor terkunci, validasi jawaban terhadap correct_answer
-       server: bila salah -> activity_logs (nomor percobaan) + sisa percobaan
-       server: bila benar -> insert answers + teams.score + activity_logs
-       server: deteksi anomali -> activity_logs kind ERROR
-  -> Realtime push ke /display dan /play semua tim
+       Server Action -> RPC submit_answer: rate limit, tolak bila terkunci, validasi
+       terhadap correct_answer, insert answers + score = score + gained + log, ATOMIK
+       (gagal jaringan -> retry otomatis hingga 3x dengan backoff)
+  -> Trigger `after insert on answers` -> realtime.send('answer.created') ke game-<id>
+  -> Klien lain menerapkan delta `answers` langsung, lalu rekonsiliasi terkoalesi 200 ms
 ```
 
 `correct_answer` **tidak pernah** meninggalkan server. `requestQuestion` mengembalikan objek
-`PublicQuestion` (tanpa kunci jawaban). Jumlah percobaan salah tidak disimpan di tabel khusus,
-melainkan dihitung ulang dari `activity_logs` agar tidak memerlukan perubahan skema.
+`PublicQuestion` (tanpa kunci jawaban). Jumlah percobaan salah dihitung di RPC dari
+`activity_logs` agar tidak memerlukan tabel khusus.
 
 ## 5. Struktur Kode
 
 ```
 app/
   actions.ts          Server Actions ("use server") — satu-satunya jalur tulis Supabase
-  layout.tsx          Root layout
-  page.tsx            Landing
-  teacher/page.tsx    Dashboard guru (client)
-  play/page.tsx       Antarmuka murid (client)
-  display/page.tsx    Papan proyektor (client)
+  layout.tsx          Root layout (+ RuntimeOptimizations)
+  page.tsx            Landing (server, force-static)
+  teacher/page.tsx    Cek cookie (server) -> TeacherDashboard (client)
+  play/page.tsx       Shell server -> PlayClient (client)
+  display/page.tsx    Shell server -> DisplayClient (client)
+  rules/page.tsx      Aturan (server, force-static)
 components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, form,
-                       QuestionBankImporter, QuestionGroupList
+                       QuestionBankImporter, QuestionGroupList, Skeleton, RuntimeOptimizations
 hooks/
-  useGameState.ts     Langganan realtime + state terpadu
+  useGameState.ts     Langganan realtime (Broadcast) + delta + rekonsiliasi + state terpadu
+  useServerNow.ts     Clock global bersama (satu interval)
   useLocalStorage.ts  useSyncExternalStore untuk localStorage
 lib/
   game.ts             Logika murni (leaderboard, validasi, poin, timer)
+  clock.ts            Offset waktu server (serverNow)
+  feedback.ts         Suara (WebAudio) + haptic lokal
   questions.ts        Validasi impor bank soal
-  backend.ts          Fasad mode Supabase/demo
+  backend.ts          Fasad mode Supabase/demo + tipe RealtimeEvent
   config.ts           Deteksi env
   types.ts            Tipe domain
   colors.ts           Palet warna tim
-  supabase/           Client browser & server
+  supabase/           Client browser (dynamic import) & server
   demo/engine.ts      Engine demo
 supabase/
-  schema.sql          Skema + RLS + realtime
+  schema.sql          Skema + RLS + Broadcast + RPC
+  migration_optimizations.sql  Migrasi incremental untuk DB yang sudah ada
   seed.sql            Bank soal contoh
 ```
 
@@ -130,9 +136,34 @@ Prinsip: **logika game murni** (`lib/game.ts`) dipisah dari **I/O** (Supabase/de
    `activity_logs` dengan format pesan stabil (`"... menjawab salah nomor N ..."`). Tidak ada
    penalti poin, jadi `buildLeaderboard` tetap dari `answers`. Opsi/kata diacak di server.
    Rate limit memakai `Map` level modul per-instance (best-effort di serverless).
+9. **Realtime Broadcast hybrid.** Perubahan game dikirim sebagai Broadcast ringan dari trigger
+   database (`realtime.send`) ke topik `game-<session_id>`, bukan `postgres_changes`. Payload
+   berupa delta kecil; `activity_logs` tidak di-broadcast. Rekonsiliasi penuh berkala (15 detik)
+   plus saat tab kembali fokus/`online` menjaga konsistensi.
+10. **RPC atomik.** `request_question` dan `submit_answer` menggabungkan banyak query menjadi satu
+    round-trip; `submit_answer` mengunci baris tim dan memakai `score = score + gained` sehingga
+    bebas race condition. RPC hanya untuk `service_role`.
+11. **Timer server-authoritative.** `started_at` disimpan server; klien menyinkronkan offset
+    waktu sekali (`lib/clock.ts`) dan menghitung sisa waktu dari `serverNow()`, sehingga timer
+    konsisten antar perangkat.
 
 ## 7. Batasan Kuota (Free Tier)
 
-- Realtime hanya pada `answers`, `teams`, `activity_logs`.
-- Tidak ada polling; state awal diambil sekali lalu diperbarui via push.
+- Realtime: Broadcast, bukan `postgres_changes` → hemat WAL/RLS. Kuota Free: 200 koneksi
+  bersamaan dan 100 pesan/detik; satu channel per room.
+- Rekonsiliasi 15 detik memakai Server Action (bukan pesan Realtime).
 - `activity_logs` dibatasi (mis. 50 entri terbaru) saat query.
+- Supabase Storage/audio tidak dipakai; aset statis di `/public` + service worker.
+
+## 8. Optimasi Performa
+
+- **Bundle**: `@supabase/supabase-js` di-`dynamic import` (tidak ikut di mode demo); format
+  gambar AVIF/WebP; font dipangkas; `npm run analyze` untuk cek budget.
+- **Render**: `AnswerFeedback` (confetti) di-`dynamic import`; landing/rules `force-static`;
+  server shell memisahkan client island.
+- **Perangkat low-end**: `RuntimeOptimizations` mendeteksi `hardwareConcurrency`/`deviceMemory`/
+  `prefers-reduced-motion` dan menyalakan `data-lite` (matikan confetti/float/blur).
+- **Perceived performance**: skeleton screen, feedback lokal (<100 ms) via `lib/feedback.ts`,
+  optimistic close modal, retry otomatis 3x.
+- **Caching**: service worker `public/sw.js` (cache-first aset statis, offline fallback untuk
+  navigasi).

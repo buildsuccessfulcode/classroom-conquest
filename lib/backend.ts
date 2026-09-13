@@ -1,8 +1,8 @@
 import * as actions from "@/app/actions";
 import { isSupabaseConfigured } from "./config";
 import * as demo from "./demo/engine";
-import { getBrowserClient } from "./supabase/client";
 import type {
+  Answer,
   AnswerResult,
   GameState,
   JoinTeamResult,
@@ -11,9 +11,16 @@ import type {
   SeedQuestion,
   Session,
   SlotQuestion,
+  Team,
 } from "./types";
 
 export type BackendMode = "supabase" | "demo";
+
+export type RealtimeEvent =
+  | { type: "answer.created"; answer: Answer }
+  | { type: "team.joined"; team: Team }
+  | { type: "session.updated"; session: Session }
+  | { type: "refresh" };
 
 export function backendMode(): BackendMode {
   return isSupabaseConfigured() ? "supabase" : "demo";
@@ -132,44 +139,31 @@ export async function deleteSession(sessionCode: string): Promise<void> {
   return demo.deleteSession(sessionCode);
 }
 
-export function subscribe(
+export async function subscribe(
   sessionId: string,
-  onChange: () => void,
-): () => void {
-  if (!isSupabaseConfigured()) return demo.subscribe(sessionId, onChange);
+  onEvent: (event: RealtimeEvent) => void,
+): Promise<() => void> {
+  if (!isSupabaseConfigured()) {
+    return demo.subscribe(sessionId, () => onEvent({ type: "refresh" }));
+  }
+  const { getBrowserClient } = await import("./supabase/client");
   const client = getBrowserClient();
   const channel = client
     .channel(`game-${sessionId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "answers",
-        filter: `session_id=eq.${sessionId}`,
-      },
-      onChange,
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "teams",
-        filter: `session_id=eq.${sessionId}`,
-      },
-      onChange,
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "activity_logs",
-        filter: `session_id=eq.${sessionId}`,
-      },
-      onChange,
-    )
+    .on("broadcast", { event: "answer.created" }, ({ payload }) => {
+      const answer = (payload as { answer?: Answer } | null)?.answer;
+      onEvent(answer ? { type: "answer.created", answer } : { type: "refresh" });
+    })
+    .on("broadcast", { event: "team.joined" }, ({ payload }) => {
+      const team = (payload as { team?: Team } | null)?.team;
+      onEvent(team ? { type: "team.joined", team } : { type: "refresh" });
+    })
+    .on("broadcast", { event: "session.updated" }, ({ payload }) => {
+      const session = (payload as { session?: Session } | null)?.session;
+      onEvent(
+        session ? { type: "session.updated", session } : { type: "refresh" },
+      );
+    })
     .subscribe();
   return () => {
     void client.removeChannel(channel);

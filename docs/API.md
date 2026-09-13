@@ -100,6 +100,10 @@ dihitung dari `activity_logs` (maks `MAX_ATTEMPTS_PER_SLOT`); `locked` menandaka
 terkunci untuk tim tersebut. `correctAnswer` hanya diisi bila `solved === true` (mode review),
 yaitu saat tim tersebut sudah menjawab benar nomor itu; selain itu `undefined`.
 
+Sejak optimasi, `requestQuestion` dan `submitAnswer` didelegasikan ke RPC Postgres
+(`request_question`, `submit_answer`) sehingga hanya satu round-trip dan penambahan skor bersifat
+atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh `service_role`.
+
 ## 2. Server Actions
 
 | Action | Input | Output |
@@ -179,3 +183,20 @@ implementasi `lib/demo/engine.ts` (kunci `classroom-conquest:demo:v3`) yang dipa
 
 - Data demo tersimpan di `localStorage` browser (satu perangkat).
 - Sinkronisasi antar-tab memakai `BroadcastChannel`.
+
+## 6. Realtime
+
+`lib/backend.ts` juga mengekspor `subscribe(sessionId, onEvent): Promise<() => void>` dengan tipe
+`RealtimeEvent`:
+
+```ts
+type RealtimeEvent =
+  | { type: 'answer.created'; answer: Answer }
+  | { type: 'team.joined'; team: Team }
+  | { type: 'session.updated'; session: Session }
+  | { type: 'refresh' }
+```
+
+Mode Supabase memakai Broadcast (`answer.created`, `team.joined`, `session.updated`); mode demo
+selalu memancarkan `{ type: 'refresh' }`. `useGameState` menerapkan delta untuk `answer.created`
+dan `team.joined`, memperbarui `session.updated`, lalu menjadwalkan rekonsiliasi terkoalesi.

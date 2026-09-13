@@ -17,12 +17,14 @@ export default function XpBar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-sm font-extrabold text-grape-dark">
-          <BoltIcon className="h-4 w-4 text-grape" />
-          Level {level.level}
-          <span className="font-bold text-ink-soft">· {level.title}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-sm font-extrabold text-grape-dark">
+          <BoltIcon className="h-4 w-4 shrink-0 text-grape" />
+          <span className="truncate">
+            Level {level.level}
+            <span className="font-bold text-ink-soft"> · {level.title}</span>
+          </span>
         </span>
-        <span className="font-mono text-xs font-bold text-ink-soft">
+        <span className="shrink-0 font-mono text-xs font-bold text-ink-soft">
           {level.xpIntoLevel}/{level.xpForLevel} XP
         </span>
       </div>

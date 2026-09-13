@@ -113,34 +113,64 @@ Jawaban benar memakai `kind = CLAIM` (hijau), jawaban salah memakai `kind = INFO
   dapat diakses browser. Daftar group/soal di UI guru dibaca lewat Server Action (service role)
   dan hanya mengembalikan kolom aman (`PublicQuestion`).
 - **Semua tulis** lewat service role di Server Actions (service role melewati RLS).
+- **RPC `request_question` / `submit_answer`** di-`revoke` dari `public`, `anon`, dan
+  `authenticated`; hanya `service_role` yang boleh `execute`. Tanpa ini, klien bisa memanggil
+  `submit_answer` lewat PostgREST dan menebak kunci jawaban dari nilai `correct`.
 - Tidak ada autentikasi (sesuai PRD); jaga kode sesi tetap di dalam kelas.
 
-## 3. Realtime
+## 3. Realtime (Broadcast hybrid)
 
-```sql
-alter publication supabase_realtime add table public.answers;
-alter publication supabase_realtime add table public.teams;
-alter publication supabase_realtime add table public.activity_logs;
-```
+Klien **tidak lagi memakai `postgres_changes`**. Perubahan game dikirim sebagai **Broadcast**
+ringan dari database lewat trigger → `realtime.send()` ke topik `game-<session_id>`:
 
-Browser berlangganan `postgres_changes` dengan filter `session_id=eq.<uuid>` pada ketiga tabel.
-`session_questions` tidak di-realtime (dibaca lewat `fetchGameState`).
+| Event | Trigger | Payload |
+| :--- | :--- | :--- |
+| `answer.created` | `after insert on answers` | `{ answer: {...} }` (delta satu jawaban) |
+| `team.joined` | `after insert on teams` | `{ team: {...} }` |
+| `session.updated` | `after update on sessions` | `{ session: {...} }` |
 
-## 4. Cara Migrasi
+- `activity_logs` **tidak** di-broadcast; panel log diperbarui lewat rekonsiliasi berkala
+  (15 detik) dan saat event jawaban. Ini memangkas lonjakan pesan Realtime.
+- Klien menerapkan delta secara langsung (`answer.created` menambah `answers`,
+  `team.joined` menambah `teams`) lalu menjadwalkan rekonsiliasi terkoalesi (200 ms).
+- Rekonsiliasi penuh (`fetchGameState`) juga dipicu saat tab kembali fokus (`visibilitychange`)
+  dan saat koneksi `online`.
+- `session_questions` tidak di-realtime (dibaca lewat `fetchGameState`).
 
-1. Buat database Supabase baru (atau hapus tabel lama).
-2. Buka Supabase → **SQL Editor**, jalankan `supabase/schema.sql`.
-3. (Opsional) Jalankan `supabase/seed.sql` untuk bank soal contoh (membuat group `Contoh ...`).
-4. Isi `.env.local` (lihat `docs/SETUP.md`).
+Fungsi `broadcast_game_change()` dan `normalize_answer()` dibuat di skema. Trigger:
+`broadcast_answers`, `broadcast_teams`, `broadcast_sessions`.
 
-Untuk database lama yang sudah berisi soal, tambahkan `group_id`: buat group dari
-`distinct subject`, isi `questions.group_id` dan `sessions.group_id`, baru ubah kolom menjadi
-`not null`. Aplikasi demo memakai kunci penyimpanan `classroom-conquest:demo:v3` (data `v2`
-diabaikan).
+## 4. Fungsi RPC
 
-## 5. Catatan Kuota
+| Fungsi | Kegunaan |
+| :--- | :--- |
+| `normalize_answer(text)` | Normalisasi jawaban (identik dengan `lib/game.ts`) |
+| `request_question(code, team_id, slot)` | Ambil soal + `solved` + `wrong_attempts` dalam satu round-trip |
+| `submit_answer(code, team_id, slot, answer)` | Validasi + `insert answers` + `score = score + gained` + log, atomik |
+| `broadcast_game_change()` | Trigger Broadcast |
 
-- Index pada `answers(session_id)`, `answers(team_id)`, `session_questions(session_id)`,
-  `sessions(group_id)`, `questions(group_id)`.
+`submit_answer` mengunci baris tim (`for update`) sehingga penambahan skor tidak lagi
+read-modify-write dan bebas race condition.
+
+## 5. Cara Migrasi
+
+### Database baru
+1. Buka Supabase → **SQL Editor**, jalankan `supabase/schema.sql`.
+2. (Opsional) Jalankan `supabase/seed.sql` untuk bank soal contoh.
+3. Isi `.env.local` (lihat `docs/SETUP.md`).
+
+### Database yang sudah ada
+Jalankan `supabase/migration_optimizations.sql` (hanya menambah index, trigger, dan RPC; aman
+diulang). Skema `schema.sql` juga idempoten, tetapi migrasi ini lebih ringkas dan tidak menyentuh
+tabel/policy.
+
+## 6. Catatan Kuota
+
+- Index: `answers(session_id)`, `answers(team_id)`, `session_questions(session_id)`,
+  `sessions(group_id)`, `sessions(status)`, `questions(group_id)`,
+  `questions(group_id, difficulty)`, `activity_logs(session_id, created_at desc)`,
+  `activity_logs(session_id, team_id, created_at desc)`.
 - Query log dibatasi 50 entri terbaru.
-- Tidak ada trigger berat.
+- Realtime memakai Broadcast (bukan `postgres_changes`) sehingga tidak membebani WAL/RLS
+  per perubahan; kuota Free tier adalah 200 koneksi & 100 pesan/detik.
+- Tidak ada polling; rekonsiliasi 15 detik memakai Server Action, bukan pesan Realtime.
