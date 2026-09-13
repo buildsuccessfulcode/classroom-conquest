@@ -590,6 +590,32 @@ export async function submitAnswer(input: {
   };
 }
 
+export async function reportFocusEvent(input: {
+  sessionCode: string;
+  teamId: string;
+  awayMs: number;
+  reason?: "leave" | "return" | "exit";
+}): Promise<void> {
+  const client = sb();
+  const session = await getSessionByCode(input.sessionCode);
+  if (!session) return;
+  if (session.status !== "PLAYING") return;
+  if (isSessionTimeUp(session)) return;
+  const team = await getTeam(client, session.id, input.teamId);
+  if (!team) return;
+  enforceRateLimit(`${session.id}:${team.id}:focus`);
+  const awaySeconds = Math.max(1, Math.round(input.awayMs / 1000));
+  let message: string;
+  if (input.reason === "leave") {
+    message = `[PERINGATAN] Tim ${team.team_name} meninggalkan tab permainan`;
+  } else if (input.reason === "return") {
+    message = `[PERINGATAN] Tim ${team.team_name} kembali setelah meninggalkan tab selama ${awaySeconds} detik`;
+  } else {
+    message = `[PERINGATAN] Tim ${team.team_name} keluar dari tab permainan`;
+  }
+  await addLog(session.id, team.id, message, "ERROR");
+}
+
 export async function importQuestions(input: {
   groupName: string;
   subject: string;

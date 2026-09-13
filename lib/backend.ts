@@ -78,6 +78,16 @@ export async function submitAnswer(input: {
   return demo.submitAnswer(input);
 }
 
+export async function reportFocusEvent(input: {
+  sessionCode: string;
+  teamId: string;
+  awayMs: number;
+  reason?: "leave" | "return" | "exit";
+}): Promise<void> {
+  if (isSupabaseConfigured()) return actions.reportFocusEvent(input);
+  return demo.reportFocusEvent(input);
+}
+
 export async function importQuestions(input: {
   groupName: string;
   subject: string;

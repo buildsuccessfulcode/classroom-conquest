@@ -112,6 +112,7 @@ yaitu saat tim tersebut sudah menjawab benar nomor itu; selain itu `undefined`.
 | `fetchGameState` | `sessionCode: string` | `GameState \| null` |
 | `requestQuestion` | `{ sessionCode, teamId, slotNumber }` | `SlotQuestion` |
 | `submitAnswer` | `{ sessionCode, teamId, slotNumber, answer }` | `AnswerResult` |
+| `reportFocusEvent` | `{ sessionCode, teamId, awayMs, reason? }` | `void` |
 | `importQuestions` | `{ groupName, subject, questions }` | `{ groupId, groupName, inserted, created }` |
 | `deleteQuestionGroup` | `groupId: string` | `void` |
 | `deleteQuestion` | `questionId: string` | `void` |
@@ -155,6 +156,11 @@ const res = await submitAnswer({ sessionCode: code, teamId, slotNumber: 2, answe
   `MAX_ATTEMPTS_PER_SLOT` percobaan salah.
 - Jawaban benar dengan indikasi mencurigakan (hampir habis percobaan atau terlalu cepat)
   menambah `activity_logs` kind `ERROR` berawalan `[PERINGATAN]`.
+- `reportFocusEvent` dipanggil klien saat tim meninggalkan tab permainan (`reason: "leave"`),
+  kembali setelah pergi ≥ 10 detik (`reason: "return"`), atau keluar/menutup tab
+  (`reason: "exit"`). Setiap laporan menambah `activity_logs` kind `ERROR` berawalan
+  `[PERINGATAN]`. Bila sesi tidak `PLAYING`, waktu habis, atau tim tidak terdaftar, action ini
+  diam (tidak throw) agar tidak mengganggu permainan.
 - `deleteQuestionGroup` / `deleteQuestion` menolak bila group/soal sedang dipakai sesi
   (`"Group sedang dipakai sesi..."` / `"Soal sedang dipakai sesi..."`).
 

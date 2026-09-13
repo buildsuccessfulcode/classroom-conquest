@@ -13,6 +13,7 @@ import TeamProfile from "@/components/TeamProfile";
 import BadgeShelf from "@/components/BadgeShelf";
 import TimeWarningBanner from "@/components/TimeWarningBanner";
 import { useGameState } from "@/hooks/useGameState";
+import { useFocusGuard } from "@/hooks/useFocusGuard";
 import { useTeamIdentity } from "@/hooks/useTeamIdentity";
 import { joinTeam, requestQuestion, submitAnswer } from "@/lib/backend";
 import {
@@ -84,6 +85,12 @@ function PlayInner() {
   const { state, loading, error: stateError, reload } = useGameState(
     identity?.sessionCode ?? null,
   );
+
+  useFocusGuard({
+    sessionCode: identity?.sessionCode ?? null,
+    teamId: identity?.teamId ?? null,
+    active: state?.session.status === "PLAYING",
+  });
 
   const staleIdentity = Boolean(
     identity &&

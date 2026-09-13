@@ -97,8 +97,15 @@ Snapshot soal ada di `ensureSlots()` (`app/actions.ts` dan `lib/demo/engine.ts`)
   (`"[PERINGATAN] ..."`) sehingga tampil merah di panel Aktivitas guru.
 - **Rate limit** permintaan per tim; kelebihan ditolak dengan pesan
   `"Terlalu banyak permintaan. Tunggu sebentar."`
-- Batas ini tidak mencegah siswa membuka browser/aplikasi lain di perangkatnya. Untuk itu
-  diperlukan pengawasan kelas, mode kiosk perangkat, atau filter jaringan.
+- **Deteksi meninggalkan tab:** saat sesi `PLAYING`, klien memantau
+  `visibilitychange`, `blur`, `focus`, dan `pagehide`. Begitu tim meninggalkan tab, server
+  langsung mencatat log `ERROR` `[PERINGATAN] Tim X meninggalkan tab permainan` (muncul realtime
+  di panel guru). Bila tim kembali setelah pergi **≥ 10 detik**, dicatat log tambahan berisi
+  durasinya. Laporan dibatasi maksimal satu per 10 detik per tim. Hanya catatan untuk guru,
+  tanpa penalti otomatis.
+- Batas ini tidak mencegah siswa membuka browser/aplikasi lain di perangkatnya, dan **tidak
+  dapat mendeteksi perangkat kedua** (mis. HP untuk bertanya ke AI). Untuk itu diperlukan
+  pengawasan kelas, mode kiosk perangkat, atau filter jaringan.
 
 ## 10. Contoh Perhitungan
 
