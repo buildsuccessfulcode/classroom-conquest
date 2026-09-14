@@ -35,9 +35,9 @@
    - saat nomor dibuka lagi, kunci jawaban hanya ditampilkan ke tim yang sudah menjawab
      benar nomor tersebut.
 4. Jika **salah**: tidak ada penalti, nomor tetap tersedia untuk dicoba lagi, log mencatat
-   percobaan gagal beserta nomornya (`"Tim X menjawab salah nomor 3 (percobaan 1/3)"`).
+   percobaan gagal beserta nomornya (`"Tim X menjawab salah nomor 3 (percobaan 1/2)"`).
 5. **Batas percobaan:** tiap nomor hanya bisa dicoba maksimal `MAX_ATTEMPTS_PER_SLOT` kali
-   per tim (default 3). Setelah batas tercapai, nomor **terkunci** untuk tim tersebut;
+   per tim (default 2). Setelah batas tercapai, nomor **terkunci** untuk tim tersebut;
    permintaan soal dan pengiriman jawaban ditolak di server.
 6. Tim boleh melanjutkan ke nomor lain kapan saja, tanpa harus berurutan.
 

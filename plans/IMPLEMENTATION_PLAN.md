@@ -24,7 +24,8 @@ Dokumen teknis pendukung: [`docs/`](../docs/).
 - Tidak ada peta. Papan = **nomor soal 1..N**, N = seluruh bank soal mapel.
 - Snapshot nomor dibuat saat **Mulai Sesi** (`session_questions`).
 - Tiap tim menjawab semua nomor secara **mandiri** (bukan rebutan).
-- Bebas pilih nomor; salah tanpa penalti, bisa dicoba lagi.
+- Bebas pilih nomor; salah tanpa penalti, maksimal 2 percobaan per nomor lalu terkunci
+  (`MAX_ATTEMPTS_PER_SLOT`).
 - Poin: EASY 100, MEDIUM 150, HARD 200.
 - Peringkat: poin desc → `lastAnsweredAt` asc → nama.
 - Timer sesi ditegakkan di server.

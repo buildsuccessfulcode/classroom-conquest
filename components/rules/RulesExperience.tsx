@@ -193,7 +193,7 @@ const RULES: Rule[] = [
     id: "alur",
     index: 3,
     title: "Alur Menjawab",
-    summary: "Pilih nomor bebas; salah tanpa penalti, maksimal 3 percobaan.",
+    summary: "Pilih nomor bebas; salah tanpa penalti, maksimal 2 percobaan.",
     tone: "brand",
     icon: "path",
     detail: (
@@ -217,7 +217,7 @@ const RULES: Rule[] = [
             lagi. Log mencatat percobaan gagal beserta nomornya.
           </>,
           <>
-            Tiap nomor maksimal <Hi>3 kali percobaan</Hi> per tim. Setelah batas
+            Tiap nomor maksimal <Hi>2 kali percobaan</Hi> per tim. Setelah batas
             tercapai, nomor terkunci untuk tim tersebut dan permintaan soal serta
             jawaban ditolak di server.
           </>,
@@ -366,7 +366,7 @@ const RULES: Rule[] = [
       <BulletList
         items={[
           <>
-            Tiap nomor dibatasi 3 percobaan lalu terkunci, sehingga menebak
+            Tiap nomor dibatasi 2 percobaan lalu terkunci, sehingga menebak
             berulang tidak efektif.
           </>,
           <>
@@ -561,32 +561,30 @@ function Examples() {
 
       <div className="cc-card min-w-0 p-5">
         <h3 className="cc-display text-lg font-extrabold text-ink">
-          3 percobaan per nomor
+          2 percobaan per nomor
         </h3>
         <div className="mt-5 flex items-center justify-center gap-3">
-          {[1, 2, 3].map((attempt) => (
+          {[1, 2].map((attempt) => (
             <div key={attempt} className="flex flex-col items-center gap-2">
-              <span
-                className={`flex h-14 w-14 items-center justify-center rounded-2xl border-2 ${
-                  attempt < 3
-                    ? "border-cherry bg-cherry-soft text-cherry-dark"
-                    : "border-cloud bg-snow text-ink-soft"
-                }`}
-              >
-                {attempt < 3 ? (
-                  <XIcon className="h-6 w-6" />
-                ) : (
-                  <LockIcon className="h-6 w-6" />
-                )}
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-cherry bg-cherry-soft text-cherry-dark">
+                <XIcon className="h-6 w-6" />
               </span>
               <span className="text-[11px] font-extrabold text-ink-soft">
                 Coba {attempt}
               </span>
             </div>
           ))}
+          <div className="flex flex-col items-center gap-2">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-cloud bg-snow text-ink-soft">
+              <LockIcon className="h-6 w-6" />
+            </span>
+            <span className="text-[11px] font-extrabold text-ink-soft">
+              Terkunci
+            </span>
+          </div>
         </div>
         <p className="mt-4 text-xs font-semibold text-ink-soft">
-          Setelah percobaan ketiga, nomor terkunci untuk tim itu.
+          Setelah dua percobaan salah, nomor terkunci untuk tim itu.
         </p>
       </div>
 

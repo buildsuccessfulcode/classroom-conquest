@@ -360,7 +360,7 @@ begin
           and team_id = p_team_id
           and message like '%menjawab salah nomor ' || p_slot_number || ' (%';
 
-    if v_wrong >= 3 then
+    if v_wrong >= 2 then
         return jsonb_build_object(
             'correct', false,
             'message', 'Nomor ' || p_slot_number || ' terkunci untuk tim Anda.',
@@ -381,19 +381,19 @@ begin
             v_session.id,
             p_team_id,
             'Tim ' || v_team.team_name || ' menjawab salah nomor ' || p_slot_number
-                || ' (percobaan ' || (v_wrong + 1) || '/3)',
+                || ' (percobaan ' || (v_wrong + 1) || '/2)',
             'INFO'
         );
         return jsonb_build_object(
             'correct', false,
             'message', case
-                when (3 - (v_wrong + 1)) > 0
-                    then 'Jawaban belum tepat. Sisa percobaan: ' || (3 - (v_wrong + 1))
+                when (2 - (v_wrong + 1)) > 0
+                    then 'Jawaban belum tepat. Sisa percobaan: ' || (2 - (v_wrong + 1))
                 else 'Jawaban belum tepat. Nomor ' || p_slot_number || ' terkunci untuk tim Anda.'
             end,
             'gainedPoints', 0,
-            'attemptsLeft', greatest(0, 3 - (v_wrong + 1)),
-            'locked', (v_wrong + 1) >= 3
+            'attemptsLeft', greatest(0, 2 - (v_wrong + 1)),
+            'locked', (v_wrong + 1) >= 2
         );
     end if;
 
@@ -424,7 +424,7 @@ begin
         'CLAIM'
     );
 
-    if v_wrong >= 2 or v_rapid then
+    if v_wrong >= 1 or v_rapid then
         insert into public.activity_logs (session_id, team_id, message, kind)
         values (
             v_session.id,
@@ -439,7 +439,7 @@ begin
         'correct', true,
         'message', 'Benar! +' || v_gained || ' poin',
         'gainedPoints', v_gained,
-        'attemptsLeft', greatest(0, 3 - v_wrong),
+        'attemptsLeft', greatest(0, 2 - v_wrong),
         'locked', false
     );
 end $$;

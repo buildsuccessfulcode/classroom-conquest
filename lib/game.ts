@@ -1,6 +1,6 @@
 import type { Answer, Difficulty, LeaderboardEntry, Team } from "./types";
 
-export const MAX_ATTEMPTS_PER_SLOT = 3;
+export const MAX_ATTEMPTS_PER_SLOT = 2;
 export const RAPID_FIRE_INTERVAL_MS = 2000;
 export const RATE_LIMIT_MAX_REQUESTS = 30;
 export const RATE_LIMIT_WINDOW_MS = 60_000;
