@@ -265,17 +265,17 @@ body {
 }
 
 .cc-pop {
-  animation: cc-pop 0.65s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  animation: cc-pop 0.4s cubic-bezier(0.22, 1.2, 0.36, 1) both;
 }
 
 .cc-rise {
-  animation: cc-rise 0.5s ease-out both;
+  animation: cc-rise 0.3s ease-out both;
 }
 
 .cc-ring {
   left: 50%;
   top: 50%;
-  animation: cc-ring 1.2s ease-out forwards;
+  animation: cc-ring 0.8s ease-out forwards;
 }
 
 .cc-confetti {
@@ -285,7 +285,7 @@ body {
 }
 
 .cc-shake {
-  animation: cc-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  animation: cc-shake 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
 .cc-float {
@@ -305,7 +305,7 @@ body {
 }
 
 .cc-bounce-in {
-  animation: cc-bounce-in 0.55s cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  animation: cc-bounce-in 0.35s cubic-bezier(0.22, 1.4, 0.36, 1) both;
 }
 
 .cc-flame {

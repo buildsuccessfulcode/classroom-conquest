@@ -1,10 +1,21 @@
 import * as actions from "@/app/actions";
+import { maskApiKey } from "./ai/gemini";
 import { isSupabaseConfigured } from "./config";
 import * as demo from "./demo/engine";
+import {
+  clearDemoAiKey,
+  readDemoAiSettings,
+  writeDemoAiSettings,
+} from "./demo/settings";
 import type {
+  ActivityLog,
+  AiSettings,
   Answer,
   AnswerResult,
   GameState,
+  GeneratedQuestionBank,
+  GenerateQuestionsInput,
+  GeminiModel,
   JoinTeamResult,
   PublicQuestion,
   QuestionGroupSummary,
@@ -20,6 +31,7 @@ export type RealtimeEvent =
   | { type: "answer.created"; answer: Answer }
   | { type: "team.joined"; team: Team }
   | { type: "session.updated"; session: Session }
+  | { type: "log.created"; log: ActivityLog }
   | { type: "refresh" };
 
 export function backendMode(): BackendMode {
@@ -119,6 +131,50 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   return demo.deleteQuestion(questionId);
 }
 
+export async function getAiSettings(): Promise<AiSettings> {
+  if (isSupabaseConfigured()) return actions.getAiSettings();
+  const { apiKey, model } = readDemoAiSettings();
+  return {
+    hasKey: Boolean(apiKey),
+    maskedKey: apiKey ? maskApiKey(apiKey) : null,
+    model,
+  };
+}
+
+export async function saveAiSettings(input: {
+  apiKey?: string;
+  model?: string;
+}): Promise<AiSettings> {
+  if (isSupabaseConfigured()) return actions.saveAiSettings(input);
+  writeDemoAiSettings(input);
+  return getAiSettings();
+}
+
+export async function clearAiKey(): Promise<AiSettings> {
+  if (isSupabaseConfigured()) return actions.clearAiKey();
+  clearDemoAiKey();
+  return getAiSettings();
+}
+
+export async function listGeminiModels(
+  apiKey?: string,
+): Promise<GeminiModel[]> {
+  if (isSupabaseConfigured()) return actions.listGeminiModels(apiKey);
+  const key = apiKey?.trim() || readDemoAiSettings().apiKey;
+  return actions.listGeminiModels(key);
+}
+
+export async function generateQuestions(
+  input: GenerateQuestionsInput,
+): Promise<GeneratedQuestionBank> {
+  if (isSupabaseConfigured()) return actions.generateQuestions(input);
+  const { apiKey, model } = readDemoAiSettings();
+  if (!apiKey) {
+    throw new Error("API key Gemini belum diatur. Buka tab Pengaturan.");
+  }
+  return actions.generateQuestions({ ...input, apiKey, model });
+}
+
 export async function startSession(sessionCode: string): Promise<void> {
   if (isSupabaseConfigured()) return actions.startSession(sessionCode);
   return demo.startSession(sessionCode);
@@ -163,6 +219,10 @@ export async function subscribe(
       onEvent(
         session ? { type: "session.updated", session } : { type: "refresh" },
       );
+    })
+    .on("broadcast", { event: "log.created" }, ({ payload }) => {
+      const log = (payload as { log?: ActivityLog } | null)?.log;
+      onEvent(log ? { type: "log.created", log } : { type: "refresh" });
     })
     .subscribe();
   return () => {

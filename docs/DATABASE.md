@@ -104,6 +104,15 @@ Feed untuk panel "Log Aktivitas".
 
 Jawaban benar memakai `kind = CLAIM` (hijau), jawaban salah memakai `kind = INFO` (kuning).
 
+### `app_settings`
+Pengaturan aplikasi (khusus server), mis. `gemini_api_key` dan `gemini_model`.
+
+| Kolom | Tipe | Catatan |
+| :--- | :--- | :--- |
+| `key` | `varchar(50)` | PK, nama pengaturan (mis. `gemini_api_key`) |
+| `value` | `text` | Nilai pengaturan |
+| `updated_at` | `timestamptz` | Default `now()` |
+
 ## 2. Keamanan (RLS)
 
 - RLS **aktif** di semua tabel.
@@ -112,6 +121,9 @@ Jawaban benar memakai `kind = CLAIM` (hijau), jawaban salah memakai `kind = INFO
 - **`questions` dan `question_groups`**: tanpa policy baca untuk anon → `correct_answer` tidak
   dapat diakses browser. Daftar group/soal di UI guru dibaca lewat Server Action (service role)
   dan hanya mengembalikan kolom aman (`PublicQuestion`).
+- **`app_settings`**: RLS aktif tanpa policy apa pun → hanya `service_role` (Server Action) yang
+  dapat membaca/menulis. Dipakai menyimpan `gemini_api_key`; key tidak pernah dikirim ke browser
+  (UI hanya menampilkan versi tersamarkan).
 - **Semua tulis** lewat service role di Server Actions (service role melewati RLS).
 - **RPC `request_question` / `submit_answer`** di-`revoke` dari `public`, `anon`, dan
   `authenticated`; hanya `service_role` yang boleh `execute`. Tanpa ini, klien bisa memanggil
@@ -128,17 +140,20 @@ ringan dari database lewat trigger → `realtime.send()` ke topik `game-<session
 | `answer.created` | `after insert on answers` | `{ answer: {...} }` (delta satu jawaban) |
 | `team.joined` | `after insert on teams` | `{ team: {...} }` |
 | `session.updated` | `after update on sessions` | `{ session: {...} }` |
+| `log.created` | `after insert on activity_logs` (kind `ERROR`) | `{ log: {...} }` |
 
-- `activity_logs` **tidak** di-broadcast; panel log diperbarui lewat rekonsiliasi berkala
-  (15 detik) dan saat event jawaban. Ini memangkas lonjakan pesan Realtime.
+- `activity_logs` hanya di-broadcast saat `kind = 'ERROR'` (mis. tim meninggalkan/keluar dari
+  permainan) agar panel proyektor bisa menampilkan peringatan seketika tanpa lonjakan pesan.
+  Log lain diperbarui lewat rekonsiliasi berkala (15 detik) dan saat event jawaban.
 - Klien menerapkan delta secara langsung (`answer.created` menambah `answers`,
-  `team.joined` menambah `teams`) lalu menjadwalkan rekonsiliasi terkoalesi (200 ms).
+  `team.joined` menambah `teams`, `log.created` menambah `logs`) lalu menjadwalkan rekonsiliasi
+  terkoalesi (200 ms).
 - Rekonsiliasi penuh (`fetchGameState`) juga dipicu saat tab kembali fokus (`visibilitychange`)
   dan saat koneksi `online`.
 - `session_questions` tidak di-realtime (dibaca lewat `fetchGameState`).
 
 Fungsi `broadcast_game_change()` dan `normalize_answer()` dibuat di skema. Trigger:
-`broadcast_answers`, `broadcast_teams`, `broadcast_sessions`.
+`broadcast_answers`, `broadcast_teams`, `broadcast_sessions`, `broadcast_activity_logs`.
 
 ## 4. Fungsi RPC
 

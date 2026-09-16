@@ -54,7 +54,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
 ## 5. Uji Coba di Kelas
 
-1. Guru buka `/teacher`, impor **group soal** lebih dulu bila belum ada.
+1. Guru buka `/teacher`, impor atau generate **group soal** lebih dulu bila belum ada.
 2. Guru buat sesi dengan memilih group (mis. `English Bab 1`, 30 menit), catat kode.
 3. Proyektor buka `/display`, masukkan kode.
 4. Murid buka `/play` di HP, masukkan kode + nama tim (hanya bisa saat sesi masih **Menunggu**).
@@ -96,7 +96,34 @@ Contoh isi file:
 ]
 ```
 
-## 7. Perintah
+## 7. Generate Soal dengan AI (Gemini)
+
+Tab **Bank Soal** di `/teacher` bisa membuat template soal lewat Gemini. Alur: isi parameter
+(mapel, materi, jenjang, bahasa, jumlah, distribusi kesulitan, tipe soal) → **Generate Soal** →
+periksa preview → **Salin JSON** atau **Kirim ke Impor** → klik **Impor Soal**.
+
+Mata pelajaran wajib diisi. **Materi/topik** dan **tipe soal** boleh dikosongkan: materi kosong
+berarti AI memilih cakupan materi yang sesuai mapel, tipe soal kosong berarti semua tipe dipakai.
+Jenjang dan nama group juga opsional.
+
+API key diatur di tab **Pengaturan**:
+
+1. Buat API key gratis di <https://aistudio.google.com/app/apikey>.
+2. Tempel di kolom **API key Gemini**, pilih model (default `gemini-2.5-flash`), klik **Simpan**.
+3. Tombol **Muat daftar model** mengambil model yang mendukung `generateContent`.
+
+Penyimpanan key:
+
+- **Mode Supabase**: tabel `app_settings` (tanpa policy RLS → hanya service role/server yang
+  dapat membacanya). Key tidak pernah dikirim ke browser; UI hanya menampilkan versi tersamarkan.
+- **Mode demo**: `localStorage` perangkat guru (`classroom-conquest:ai:v1`). Pemanggilan Gemini
+  tetap lewat Server Action dengan key dari `localStorage`.
+
+Keluaran Gemini divalidasi ulang memakai `parseQuestionBank` (`lib/questions.ts`) sehingga format
+soal dijamin cocok dengan importer. Tanpa API key, panel generate menampilkan peringatan dan
+tombol menuju tab Pengaturan.
+
+## 8. Perintah
 
 | Perintah | Fungsi |
 | :--- | :--- |
@@ -106,7 +133,7 @@ Contoh isi file:
 | `npm run lint` | ESLint |
 | `npx tsc --noEmit` | Cek tipe |
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | :--- | :--- |
@@ -117,3 +144,6 @@ Contoh isi file:
 | `Group/Soal sedang dipakai sesi` saat hapus | Hapus sesi yang memakai group/soal tersebut lebih dulu. |
 | Selalu mode demo | Env `NEXT_PUBLIC_*` belum terisi atau server belum di-restart. |
 | `permission denied for table questions` di server | `SUPABASE_SERVICE_ROLE_KEY` belum diisi. |
+| `API key Gemini belum diatur` | Isi key di tab **Pengaturan** pada `/teacher`. |
+| `API key Gemini tidak valid` | Periksa key di Google AI Studio; pastikan Generative Language API aktif. |
+| `relation "app_settings" does not exist` | Jalankan `supabase/migration_optimizations.sql` (atau `schema.sql`) di SQL Editor. |

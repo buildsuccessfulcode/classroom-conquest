@@ -176,7 +176,8 @@ as $$
 $$;
 
 -- Kirim delta kecil ke channel `game-<session_id>` memakai Broadcast publik.
--- Hanya event bernilai tinggi; activity_logs tidak di-broadcast (hemat kuota).
+-- Hanya event bernilai tinggi. activity_logs hanya di-broadcast bila kind = 'ERROR'
+-- (mis. tim keluar dari permainan) agar hemat kuota.
 create or replace function public.broadcast_game_change()
 returns trigger
 language plpgsql
@@ -226,6 +227,24 @@ begin
             'game-' || new.id::text,
             false
         );
+    elsif tg_table_name = 'activity_logs' and tg_op = 'INSERT'
+          and new.kind = 'ERROR' then
+        perform realtime.send(
+            jsonb_build_object(
+                'type', 'log.created',
+                'log', jsonb_build_object(
+                    'id', new.id,
+                    'session_id', new.session_id,
+                    'team_id', new.team_id,
+                    'message', new.message,
+                    'kind', new.kind,
+                    'created_at', new.created_at
+                )
+            ),
+            'log.created',
+            'game-' || new.session_id::text,
+            false
+        );
     end if;
     return null;
 end $$;
@@ -243,6 +262,11 @@ create trigger broadcast_teams
 drop trigger if exists broadcast_sessions on public.sessions;
 create trigger broadcast_sessions
     after update on public.sessions
+    for each row execute function public.broadcast_game_change();
+
+drop trigger if exists broadcast_activity_logs on public.activity_logs;
+create trigger broadcast_activity_logs
+    after insert on public.activity_logs
     for each row execute function public.broadcast_game_change();
 
 -- Ambil soal + status solved + jumlah percobaan salah dalam satu round-trip.
@@ -452,3 +476,17 @@ revoke all on function public.broadcast_game_change() from public, anon, authent
 revoke all on function public.normalize_answer(text) from public, anon, authenticated;
 grant execute on function public.request_question(text, uuid, int) to service_role;
 grant execute on function public.submit_answer(text, uuid, int, text) to service_role;
+
+-- ============================================================
+-- 9. Pengaturan aplikasi (API key Gemini, pilihan model)
+-- ============================================================
+create table if not exists public.app_settings (
+    key varchar(50) primary key,
+    value text not null,
+    updated_at timestamptz not null default now()
+);
+
+alter table public.app_settings enable row level security;
+-- Sengaja tanpa policy: hanya service_role (Server Action) yang boleh membaca
+-- dan menulis. API key tidak pernah sampai ke browser.
+

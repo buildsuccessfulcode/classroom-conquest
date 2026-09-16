@@ -93,7 +93,8 @@ app/
   display/page.tsx    Shell server -> DisplayClient (client)
   rules/page.tsx      Aturan (server, force-static)
 components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, form,
-                       QuestionBankImporter, QuestionGroupList, Skeleton, RuntimeOptimizations
+                       QuestionBankImporter, QuestionGenerator, AiSettingsPanel,
+                       QuestionGroupList, Skeleton, RuntimeOptimizations
 hooks/
   useGameState.ts     Langganan realtime (Broadcast) + delta + rekonsiliasi + state terpadu
   useServerNow.ts     Clock global bersama (satu interval)
@@ -103,14 +104,17 @@ lib/
   clock.ts            Offset waktu server (serverNow)
   feedback.ts         Suara (WebAudio) + haptic lokal
   questions.ts        Validasi impor bank soal
+  ai/prompt.ts        Prompt + response schema Gemini
+  ai/gemini.ts        Klien REST Gemini (list model, generate)
   backend.ts          Fasad mode Supabase/demo + tipe RealtimeEvent
   config.ts           Deteksi env
   types.ts            Tipe domain
   colors.ts           Palet warna tim
   supabase/           Client browser (dynamic import) & server
   demo/engine.ts      Engine demo
+  demo/settings.ts    Pengaturan AI di localStorage (mode demo)
 supabase/
-  schema.sql          Skema + RLS + Broadcast + RPC
+  schema.sql          Skema + RLS + Broadcast + RPC + app_settings
   migration_optimizations.sql  Migrasi incremental untuk DB yang sudah ada
   seed.sql            Bank soal contoh
 ```
@@ -167,3 +171,25 @@ Prinsip: **logika game murni** (`lib/game.ts`) dipisah dari **I/O** (Supabase/de
   optimistic close modal, retry otomatis 3x.
 - **Caching**: service worker `public/sw.js` (cache-first aset statis, offline fallback untuk
   navigasi).
+
+## 9. Integrasi AI (Gemini)
+
+```
+Guru isi parameter (tab Bank Soal)
+  -> backend.generateQuestions(input)
+       Mode Supabase: Server Action baca key dari tabel app_settings (service role)
+       Mode demo: key dari localStorage diteruskan ke Server Action
+  -> lib/ai/prompt.ts menyusun prompt + responseSchema (JSON terstruktur)
+  -> lib/ai/gemini.ts POST {model}:generateContent
+  -> parseQuestionBank() memvalidasi ulang keluaran (jaminan format importer)
+  -> preview + "Salin JSON" / "Kirim ke Impor" -> guru klik Impor Soal
+```
+
+- **Key tidak pernah ke browser.** UI hanya menampilkan `maskedKey`; aksi `getAiSettings` tidak
+  mengembalikan nilai mentah. Di mode Supabase, RLS `app_settings` tanpa policy.
+- **Mode demo** memakai `localStorage` (`classroom-conquest:ai:v1`), tetapi panggilan Gemini tetap
+  melalui Server Action (menghindari CORS) dengan key yang dikirim dari klien.
+- **Validasi berlapis**: input dibatasi di `app/actions.ts` (jumlah 1–50, tipe, distribusi) dan
+  keluaran divalidasi `parseQuestionBank`; error ditampilkan per-nomor.
+- **Tanpa dependency baru**: cukup `fetch`; model default `gemini-2.5-flash`, daftar model diambil
+  dinamis dari endpoint `models`.

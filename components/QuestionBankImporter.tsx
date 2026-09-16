@@ -8,16 +8,33 @@ import { UploadIcon } from "./icons";
 
 const MAX_FILE_BYTES = 1_000_000;
 
+export interface ImporterSeed {
+  groupName: string;
+  subject: string;
+  raw: string;
+  token: number;
+}
+
 export default function QuestionBankImporter({
   onImported,
+  initialGroupName = "",
+  initialSubject = "",
+  initialRaw = "",
 }: {
   onImported?: () => void;
+  initialGroupName?: string;
+  initialSubject?: string;
+  initialRaw?: string;
 }) {
-  const [groupName, setGroupName] = useState("");
-  const [subject, setSubject] = useState("English");
-  const [raw, setRaw] = useState("");
+  const [groupName, setGroupName] = useState(initialGroupName);
+  const [subject, setSubject] = useState(initialSubject);
+  const [raw, setRaw] = useState(initialRaw);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(
+    initialRaw
+      ? "Soal hasil generate sudah diisi di bawah. Periksa lalu klik Impor Soal."
+      : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);

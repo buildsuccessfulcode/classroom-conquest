@@ -120,6 +120,20 @@ docs/ plans/
 - [x] Migrasi incremental `supabase/migration_optimizations.sql`.
 - [x] Perbarui CONTEXT, ARCHITECTURE, DATABASE, API, plans.
 
+### Fase 6 — Generator Soal AI + Redesain Halaman Guru
+- [x] `lib/ai/prompt.ts` (prompt + response schema Gemini) & `lib/ai/gemini.ts` (REST: list model,
+  generate, `maskApiKey`).
+- [x] Tabel `app_settings` di `schema.sql` + `migration_optimizations.sql` (RLS tanpa policy).
+- [x] `app/actions.ts`: `getAiSettings`, `saveAiSettings`, `clearAiKey`, `listGeminiModels`,
+  `generateQuestions` (key server-side, rate limit, validasi `parseQuestionBank`).
+- [x] `lib/demo/settings.ts` + fasad AI di `lib/backend.ts` (dual-mode).
+- [x] `components/QuestionGenerator.tsx` (parameter, preview, salin JSON, kirim ke impor) &
+  `components/AiSettingsPanel.tsx` (API key + model).
+- [x] `QuestionBankImporter` mendukung prefill; `TeacherDashboard` di-redesain menjadi tab
+  `Sesi` / `Bank Soal` / `Pengaturan`.
+- [x] Perbarui CONTEXT, ARCHITECTURE, DATABASE, API, SETUP, PROMPT_GENERATE_SOAL, plans.
+- [x] Verifikasi `npm run lint`, `npx tsc --noEmit`, `npm run build`.
+
 ## 5. Rencana Lanjutan (opsional)
 
 - QR code di `/display` menuju `/play?code=XXXXXX` dan `/play` membaca `?code=`.

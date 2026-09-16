@@ -3,6 +3,11 @@
 Dokumen ini berisi contoh prompt siap pakai untuk meminta AI (ChatGPT, Gemini, Claude, dsb.)
 membuatkan bank soal dalam format JSON yang langsung bisa diimpor di `/teacher`.
 
+> **Baru:** aplikasi kini punya generator bawaan di tab **Bank Soal** (`/teacher`) yang memakai
+> Gemini. Isi parameter (mapel, materi, jumlah, distribusi, tipe), lalu **Generate Soal**.
+> Prompt di dokumen ini adalah acuan yang dipakai generator tersebut, dan tetap berguna bila
+> ingin memakai AI lain secara manual.
+
 ## 1. Cara Pakai
 
 1. Salin **Template Prompt** di bawah.

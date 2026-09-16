@@ -143,3 +143,34 @@ export interface AnswerResult {
 export type JoinTeamResult =
   | { ok: true; team: Team }
   | { ok: false; error: string };
+
+export interface AiSettings {
+  hasKey: boolean;
+  maskedKey: string | null;
+  model: string;
+}
+
+export interface GeminiModel {
+  id: string;
+  displayName: string;
+}
+
+export interface GenerateQuestionsInput {
+  subject: string;
+  topic: string;
+  grade: string;
+  language: "id" | "en";
+  count: number;
+  distribution: {
+    EASY: number;
+    MEDIUM: number;
+    HARD: number;
+  };
+  types: QuestionType[];
+}
+
+export interface GeneratedQuestionBank {
+  questions: SeedQuestion[];
+  raw: string;
+  model: string;
+}

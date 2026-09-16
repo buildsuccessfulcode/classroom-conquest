@@ -12,6 +12,8 @@ untuk mengumpulkan poin, papan proyektor realtime.
 
 - Tidak ada peta/wilayah. Papan = nomor soal 1..N.
 - Bank soal disimpan per **group soal** (nama + mapel). Impor dengan nama group sama menambah soal.
+- Guru dapat men-generate template soal via **Gemini** (tab Bank Soal), lalu menyalin/mengimpor
+  JSON-nya. API key diatur di tab Pengaturan.
 - Guru membuat sesi dengan **memilih group**; nomor soal 1..N = seluruh soal group, snapshot
   dibuat saat sesi dibuat.
 - Tiap tim menjawab semua nomor secara **mandiri** (bukan rebutan); satu nomor bisa benar untuk
@@ -42,7 +44,8 @@ app/{play,display}/page.tsx  shell server -> {Play,Display}Client.tsx (client)
 app/teacher/page.tsx   cek cookie (server) -> TeacherDashboard (client)
 app/rules/page.tsx     halaman aturan publik (server, force-static)
 components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, form,
-                       QuestionBankImporter, QuestionGroupList, Skeleton, RuntimeOptimizations
+                       QuestionBankImporter, QuestionGenerator, AiSettingsPanel,
+                       QuestionGroupList, Skeleton, RuntimeOptimizations
 hooks/useGameState.ts  state + realtime Broadcast + delta + rekonsiliasi
 hooks/useServerNow.ts  clock global bersama (offset server)
 hooks/useLocalStorage.ts  useSyncExternalStore untuk localStorage
@@ -50,10 +53,13 @@ lib/game.ts            leaderboard, validasi jawaban, poin, timer
 lib/clock.ts           offset waktu server (serverNow)
 lib/feedback.ts        suara WebAudio + haptic lokal
 lib/questions.ts       validasi impor bank soal (parseQuestionBank)
+lib/ai/prompt.ts       prompt + response schema Gemini
+lib/ai/gemini.ts       klien REST Gemini (list model, generate, maskApiKey)
 lib/backend.ts         fasad supabase/demo + tipe RealtimeEvent
 lib/supabase/{client,server}.ts  client di-dynamic import
 lib/demo/engine.ts     engine demo (localStorage v3)
-supabase/schema.sql    skema + RLS + Broadcast + RPC
+lib/demo/settings.ts   pengaturan AI demo (localStorage)
+supabase/schema.sql    skema + RLS + Broadcast + RPC + app_settings
 supabase/migration_optimizations.sql  migrasi untuk DB yang sudah ada
 docs/                  dokumentasi (baca sesuai kebutuhan)
 plans/                 rencana
@@ -66,6 +72,8 @@ plans/                 rencana
 - `session_questions`: snapshot nomor soal per sesi (`slot_number`, `question_id`).
 - `answers`: hanya jawaban **benar** (`team_id`, `slot_number`, `points`, `answered_at`).
 - `activity_logs`.
+- `app_settings`: pengaturan server (`gemini_api_key`, `gemini_model`); RLS tanpa policy → hanya
+  service role. Key tidak pernah dikirim ke client.
 
 ## Perintah
 
@@ -85,7 +93,9 @@ npm run analyze        # bundle analyzer
 2. Anon hanya `SELECT`; semua tulis lewat service role di server. RPC `request_question` dan
    `submit_answer` di-`revoke` dari anon (hanya `service_role`).
 3. Realtime memakai **Broadcast** dari trigger DB (`answer.created`, `team.joined`,
-   `session.updated`) ke topik `game-<session_id>`; `activity_logs` tidak di-broadcast.
+   `session.updated`, `log.created`) ke topik `game-<session_id>`; `activity_logs` hanya
+   di-broadcast bila `kind = 'ERROR'` (mis. tim keluar) agar panel proyektor bisa memberi
+   peringatan seketika.
 4. Snapshot nomor soal dibuat saat `createSession`; start/reset tidak mengubah snapshot.
 5. Hapus group/soal ditolak bila masih dipakai sesi.
 6. Perubahan skema harus disinkronkan ke `supabase/schema.sql`,
@@ -95,6 +105,8 @@ npm run analyze        # bundle analyzer
    rate limit per-instance di `app/actions.ts` + `lib/demo/engine.ts`.
 8. Timer server-authoritative: sinkronkan `syncServerClock(state.serverTime)`, tampilkan via
    `useServerNow()`; jangan pakai `Date.now()` langsung untuk sisa waktu.
+9. API key Gemini tidak pernah dikirim ke client; hanya `maskedKey`. Mode Supabase menyimpan di
+   `app_settings` (service role), mode demo di `localStorage`. Generate lewat Server Action.
 
 ## Detail Rujukan
 

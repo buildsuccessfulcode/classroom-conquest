@@ -93,6 +93,31 @@ interface AnswerResult {
 type JoinTeamResult =
   | { ok: true; team: Team }
   | { ok: false; error: string }
+
+interface AiSettings {
+  hasKey: boolean
+  maskedKey: string | null
+  model: string
+}
+
+interface GeminiModel {
+  id: string
+  displayName: string
+}
+
+interface GenerateQuestionsInput {
+  subject: string; topic: string; grade: string
+  language: 'id' | 'en'
+  count: number
+  distribution: { EASY: number; MEDIUM: number; HARD: number }
+  types: QuestionType[]
+}
+
+interface GeneratedQuestionBank {
+  questions: SeedQuestion[]
+  raw: string
+  model: string
+}
 ```
 
 `requestQuestion` mengacak `metadata.options` dan `metadata.words` di server. `attemptsLeft`
@@ -120,6 +145,11 @@ atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh `service
 | `importQuestions` | `{ groupName, subject, questions }` | `{ groupId, groupName, inserted, created }` |
 | `deleteQuestionGroup` | `groupId: string` | `void` |
 | `deleteQuestion` | `questionId: string` | `void` |
+| `getAiSettings` | — | `AiSettings` |
+| `saveAiSettings` | `{ apiKey?, model? }` | `AiSettings` |
+| `clearAiKey` | — | `AiSettings` |
+| `listGeminiModels` | `apiKey?: string` | `GeminiModel[]` |
+| `generateQuestions` | `GenerateQuestionsInput` | `GeneratedQuestionBank` |
 | `startSession` | `sessionCode` | `void` |
 | `resetSession` | `sessionCode` | `void` |
 | `endSession` | `sessionCode` | `void` |
@@ -200,3 +230,19 @@ type RealtimeEvent =
 Mode Supabase memakai Broadcast (`answer.created`, `team.joined`, `session.updated`); mode demo
 selalu memancarkan `{ type: 'refresh' }`. `useGameState` menerapkan delta untuk `answer.created`
 dan `team.joined`, memperbarui `session.updated`, lalu menjadwalkan rekonsiliasi terkoalesi.
+
+## 7. Integrasi AI (Gemini)
+
+Fasad `lib/backend.ts` juga mengekspor `getAiSettings`, `saveAiSettings`, `clearAiKey`,
+`listGeminiModels`, dan `generateQuestions`.
+
+- **Mode Supabase**: key dibaca/ditulis di tabel `app_settings` lewat Server Action; `generateQuestions`
+  memakai key tersimpan (tidak ada key yang dikirim klien).
+- **Mode demo**: key dibaca dari `localStorage` (`classroom-conquest:ai:v1`) lalu diteruskan ke
+  Server Action yang sama, sehingga pemanggilan Gemini tetap dari server (bebas CORS).
+- `getAiSettings` **tidak pernah** mengembalikan key mentah; hanya `maskedKey` (4 karakter terakhir).
+- `generateQuestions` memvalidasi input (mapel wajib; materi opsional; jumlah 1–50; tipe valid,
+  kosong = semua tipe; distribusi), menerapkan rate limit, memanggil `lib/ai/gemini.ts`, lalu
+  memvalidasi ulang keluaran dengan `parseQuestionBank`.
+- `listGeminiModels` memakai endpoint `models` Gemini dan menyaring model yang mendukung
+  `generateContent`. Default model: `gemini-2.5-flash`.

@@ -1,6 +1,13 @@
 "use server";
 
 import { cookies } from "next/headers";
+import {
+  generateQuestions as geminiGenerate,
+  listGeminiModels as geminiListModels,
+  maskApiKey,
+  sanitizeApiKey,
+} from "@/lib/ai/gemini";
+import { GEMINI_DEFAULT_MODEL } from "@/lib/ai/prompt";
 import { pickTeamColor } from "@/lib/colors";
 import { isSupabaseConfigured } from "@/lib/config";
 import {
@@ -20,15 +27,20 @@ import {
 import { createServiceClient } from "@/lib/supabase/server";
 import type {
   ActivityLog,
+  AiSettings,
   Answer,
   AnswerResult,
   GameState,
+  GeneratedQuestionBank,
+  GenerateQuestionsInput,
+  GeminiModel,
   JoinTeamResult,
   LogKind,
   PublicQuestion,
   Question,
   QuestionGroup,
   QuestionGroupSummary,
+  QuestionType,
   SeedQuestion,
   Session,
   SessionSlot,
@@ -638,4 +650,139 @@ export async function loginTeacher(
 export async function logoutTeacher(): Promise<void> {
   const store = await cookies();
   store.delete(TEACHER_COOKIE);
+}
+
+const SETTING_GEMINI_KEY = "gemini_api_key";
+const SETTING_GEMINI_MODEL = "gemini_model";
+const GENERATE_TYPES: QuestionType[] = [
+  "MULTIPLE_CHOICE",
+  "SHORT_ANSWER",
+  "REARRANGE_WORDS",
+];
+const MAX_GENERATE_COUNT = 50;
+
+async function readSetting(key: string): Promise<string | null> {
+  const { data, error } = await sb()
+    .from("app_settings")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { value: string } | null)?.value ?? null;
+}
+
+async function writeSetting(key: string, value: string): Promise<void> {
+  const { error } = await sb()
+    .from("app_settings")
+    .upsert(
+      { key, value, updated_at: new Date().toISOString() },
+      { onConflict: "key" },
+    );
+  if (error) throw new Error(error.message);
+}
+
+async function deleteSetting(key: string): Promise<void> {
+  const { error } = await sb().from("app_settings").delete().eq("key", key);
+  if (error) throw new Error(error.message);
+}
+
+async function storedGeminiKey(): Promise<string | null> {
+  const value = await readSetting(SETTING_GEMINI_KEY);
+  const cleaned = value ? sanitizeApiKey(value) : "";
+  return cleaned ? cleaned : null;
+}
+
+export async function getAiSettings(): Promise<AiSettings> {
+  await requireTeacher();
+  const [key, model] = await Promise.all([
+    storedGeminiKey(),
+    readSetting(SETTING_GEMINI_MODEL),
+  ]);
+  return {
+    hasKey: Boolean(key),
+    maskedKey: key ? maskApiKey(key) : null,
+    model: model?.trim() || GEMINI_DEFAULT_MODEL,
+  };
+}
+
+export async function saveAiSettings(input: {
+  apiKey?: string;
+  model?: string;
+}): Promise<AiSettings> {
+  await requireTeacher();
+  const apiKey = input.apiKey ? sanitizeApiKey(input.apiKey) : "";
+  if (apiKey) {
+    if (apiKey.length < 10) throw new Error("API key Gemini tidak valid");
+    await writeSetting(SETTING_GEMINI_KEY, apiKey);
+  }
+  const model = input.model?.trim();
+  if (model) await writeSetting(SETTING_GEMINI_MODEL, model);
+  return getAiSettings();
+}
+
+export async function clearAiKey(): Promise<AiSettings> {
+  await requireTeacher();
+  await deleteSetting(SETTING_GEMINI_KEY);
+  return getAiSettings();
+}
+
+export async function listGeminiModels(apiKey?: string): Promise<GeminiModel[]> {
+  await requireTeacher();
+  enforceRateLimit("ai-models");
+  const key = (apiKey ? sanitizeApiKey(apiKey) : "") || (await storedGeminiKey());
+  if (!key) throw new Error("API key Gemini belum diatur");
+  return geminiListModels(key);
+}
+
+function normalizeGenerateInput(
+  input: GenerateQuestionsInput,
+): GenerateQuestionsInput {
+  const subject = input.subject?.trim();
+  if (!subject) throw new Error("Mata pelajaran wajib diisi");
+  const topic = (input.topic ?? "").trim();
+  const count = Math.round(Number(input.count));
+  if (!Number.isFinite(count) || count < 1) {
+    throw new Error("Jumlah soal minimal 1");
+  }
+  if (count > MAX_GENERATE_COUNT) {
+    throw new Error(`Jumlah soal maksimal ${MAX_GENERATE_COUNT}`);
+  }
+  const selected = (Array.isArray(input.types) ? input.types : []).filter(
+    (type): type is QuestionType => GENERATE_TYPES.includes(type),
+  );
+  const types = selected.length > 0 ? selected : GENERATE_TYPES;
+  const distribution = input.distribution ?? { EASY: 0, MEDIUM: 0, HARD: 0 };
+  const clamp = (value: unknown) => Math.max(0, Math.round(Number(value) || 0));
+  return {
+    subject,
+    topic,
+    grade: (input.grade ?? "").trim(),
+    language: input.language === "en" ? "en" : "id",
+    count,
+    distribution: {
+      EASY: clamp(distribution.EASY),
+      MEDIUM: clamp(distribution.MEDIUM),
+      HARD: clamp(distribution.HARD),
+    },
+    types,
+  };
+}
+
+export async function generateQuestions(
+  input: GenerateQuestionsInput & { apiKey?: string; model?: string },
+): Promise<GeneratedQuestionBank> {
+  await requireTeacher();
+  enforceRateLimit("ai-generate");
+  const normalized = normalizeGenerateInput(input);
+  const key =
+    (input.apiKey ? sanitizeApiKey(input.apiKey) : "") ||
+    (await storedGeminiKey());
+  if (!key) {
+    throw new Error("API key Gemini belum diatur. Buka tab Pengaturan.");
+  }
+  const model =
+    input.model?.trim() ||
+    (await readSetting(SETTING_GEMINI_MODEL))?.trim() ||
+    GEMINI_DEFAULT_MODEL;
+  return geminiGenerate(key, model, normalized);
 }

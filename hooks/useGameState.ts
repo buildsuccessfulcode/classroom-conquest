@@ -66,6 +66,13 @@ export function useGameState(sessionCode: string | null) {
         setState((prev) =>
           prev ? { ...prev, session: event.session } : prev,
         );
+      } else if (event.type === "log.created") {
+        setState((prev) => {
+          if (!prev || prev.logs.some((log) => log.id === event.log.id)) {
+            return prev;
+          }
+          return { ...prev, logs: [...prev.logs, event.log] };
+        });
       }
       scheduleReload();
     };

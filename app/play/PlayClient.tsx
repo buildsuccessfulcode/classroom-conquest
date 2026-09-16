@@ -20,9 +20,15 @@ const AnswerFeedback = dynamic(() => import("@/components/AnswerFeedback"), {
 });
 import { useGameState } from "@/hooks/useGameState";
 import { useFocusGuard } from "@/hooks/useFocusGuard";
+import { useStoredValue, writeStoredValue } from "@/hooks/useLocalStorage";
 import { useTeamIdentity } from "@/hooks/useTeamIdentity";
 import { joinTeam, requestQuestion, submitAnswer } from "@/lib/backend";
-import { haptic, playFeedback } from "@/lib/feedback";
+import {
+  SOUND_STORAGE_KEY,
+  haptic,
+  playFeedback,
+  unlockAudio,
+} from "@/lib/feedback";
 import {
   buildLeaderboard,
   countWrongAttemptsForTeam,
@@ -43,8 +49,13 @@ import {
   LogOutIcon,
   SparkleIcon,
   UsersIcon,
+  VolumeOffIcon,
+  VolumeOnIcon,
   XIcon,
 } from "@/components/icons";
+
+const CELEBRATION_MS = 1200;
+const CELEBRATION_LONG_MS = 1800;
 
 interface Celebration {
   correct: boolean;
@@ -89,6 +100,9 @@ function PlayInner() {
   const [boardFilter, setBoardFilter] = useState<"all" | "todo" | "done">(
     "all",
   );
+  const soundPref = useStoredValue(SOUND_STORAGE_KEY);
+  const soundOn = soundPref !== "off";
+  const prevStatusRef = useRef<string | null>(null);
 
   const { state, loading, error: stateError, reload } = useGameState(
     identity?.sessionCode ?? null,
@@ -109,9 +123,32 @@ function PlayInner() {
 
   useEffect(() => {
     if (!celebration) return;
-    const id = window.setTimeout(() => setCelebration(null), 2600);
+    const duration =
+      celebration.badge || celebration.levelUp
+        ? CELEBRATION_LONG_MS
+        : CELEBRATION_MS;
+    const id = window.setTimeout(() => setCelebration(null), duration);
     return () => window.clearTimeout(id);
   }, [celebration]);
+
+  const status = state?.session.status ?? null;
+  useEffect(() => {
+    if (!status) return;
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (!identity || prev === null || prev === status) return;
+    if (prev !== "PLAYING" && status === "PLAYING") playFeedback("start");
+    else if (prev === "PLAYING" && status === "ENDED") playFeedback("end");
+  }, [identity, status]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    writeStoredValue(SOUND_STORAGE_KEY, next ? null : "off");
+    if (next) {
+      unlockAudio();
+      playFeedback("sent");
+    }
+  };
 
   const stats = useMemo(
     () => (state && identity ? teamStats(state, identity.teamId) : null),
@@ -140,6 +177,7 @@ function PlayInner() {
 
   const handleJoin = async (event: React.FormEvent) => {
     event.preventDefault();
+    unlockAudio();
     setBusy(true);
     setError(null);
     try {
@@ -163,6 +201,7 @@ function PlayInner() {
     async (slotNumber: number) => {
       if (!identity) return;
       if (state?.session.status !== "PLAYING") return;
+      unlockAudio();
       setBusy(true);
       setLoadingSlot(slotNumber);
       setError(null);
@@ -222,6 +261,7 @@ function PlayInner() {
     if (!turn || !identity || !stats) return;
     const before = stats;
     const slotNumber = turn.slotNumber;
+    unlockAudio();
     closeTurn();
     playFeedback("sent");
     haptic(10);
@@ -406,7 +446,6 @@ function PlayInner() {
     );
   }
 
-  const status = state.session.status;
   const totalSlots = state.slots.length;
   const board = buildLeaderboard(state.teams, state.answers, totalSlots);
   const champion = board[0];
@@ -436,6 +475,19 @@ function PlayInner() {
                 {stats.xp} XP
               </span>
             ) : null}
+            <button
+              type="button"
+              onClick={toggleSound}
+              aria-label={soundOn ? "Matikan suara" : "Nyalakan suara"}
+              title={soundOn ? "Matikan suara" : "Nyalakan suara"}
+              className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-cloud bg-white text-ink-soft transition hover:border-ocean/60"
+            >
+              {soundOn ? (
+                <VolumeOnIcon className="h-4 w-4" />
+              ) : (
+                <VolumeOffIcon className="h-4 w-4" />
+              )}
+            </button>
             <ModeBadge />
           </div>
         </header>
@@ -701,6 +753,7 @@ function PlayInner() {
           levelUp={celebration.levelUp}
           level={celebration.level}
           message={celebration.message}
+          onDismiss={() => setCelebration(null)}
         />
       ) : null}
     </main>

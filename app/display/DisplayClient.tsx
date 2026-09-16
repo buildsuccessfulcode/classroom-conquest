@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ActivityLog from "@/components/ActivityLog";
 import CountdownTimer from "@/components/CountdownTimer";
@@ -10,10 +10,26 @@ import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
 import QuestionBoard from "@/components/QuestionBoard";
 import Skeleton from "@/components/Skeleton";
+import TeamLeaveAlert from "@/components/TeamLeaveAlert";
 import TimeWarningBanner from "@/components/TimeWarningBanner";
-import { ArrowLeftIcon, CrownIcon, UsersIcon } from "@/components/icons";
+import {
+  ArrowLeftIcon,
+  CrownIcon,
+  UsersIcon,
+  VolumeOffIcon,
+  VolumeOnIcon,
+} from "@/components/icons";
 import { useGameState } from "@/hooks/useGameState";
+import { useStoredValue, writeStoredValue } from "@/hooks/useLocalStorage";
+import { SOUND_STORAGE_KEY, playFeedback, unlockAudio } from "@/lib/feedback";
 import { buildLeaderboard } from "@/lib/game";
+
+function isLeaveMessage(message: string): boolean {
+  return (
+    message.includes("meninggalkan tab permainan") ||
+    message.includes("keluar dari tab permainan")
+  );
+}
 
 const STATUS_LABEL: Record<string, string> = {
   LOBBY: "Menunggu peserta",
@@ -29,6 +45,47 @@ function DisplayInner() {
     initialCode || null,
   );
   const { state, loading, error, reload } = useGameState(activeCode);
+  const soundPref = useStoredValue(SOUND_STORAGE_KEY);
+  const soundOn = soundPref !== "off";
+  const [alert, setAlert] = useState<{
+    id: string;
+    teamName: string;
+    color?: string;
+  } | null>(null);
+  const seenLogIdsRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    seenLogIdsRef.current = null;
+  }, [activeCode]);
+
+  useEffect(() => {
+    if (!state) return;
+    const seen = seenLogIdsRef.current;
+    if (seen === null) {
+      seenLogIdsRef.current = new Set(state.logs.map((log) => log.id));
+      return;
+    }
+    const fresh = state.logs.filter((log) => !seen.has(log.id));
+    for (const log of fresh) seen.add(log.id);
+    const leave = fresh.find((log) => isLeaveMessage(log.message));
+    if (!leave) return;
+    const team = state.teams.find((item) => item.id === leave.team_id);
+    setAlert({
+      id: leave.id,
+      teamName: team?.team_name ?? "Peserta",
+      color: team?.color_code,
+    });
+    playFeedback("leave");
+  }, [state]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    writeStoredValue(SOUND_STORAGE_KEY, next ? null : "off");
+    if (next) {
+      unlockAudio();
+      playFeedback("sent");
+    }
+  };
 
   if (!activeCode) {
     return (
@@ -56,6 +113,8 @@ function DisplayInner() {
           className="cc-card flex flex-col gap-4 p-5"
           onSubmit={(event) => {
             event.preventDefault();
+            unlockAudio();
+            setAlert(null);
             setActiveCode(inputCode.trim().toUpperCase());
           }}
         >
@@ -85,7 +144,10 @@ function DisplayInner() {
       : undefined;
 
   return (
-    <main className="flex flex-1 flex-col gap-5 px-4 py-5 sm:px-6">
+    <main
+      className="flex flex-1 flex-col gap-5 px-4 py-5 sm:px-6"
+      onPointerDownCapture={() => unlockAudio()}
+    >
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-4">
           <span className="cc-display shrink-0 font-mono text-3xl font-extrabold tracking-[0.15em] text-ocean-dark sm:text-4xl">
@@ -112,10 +174,26 @@ function DisplayInner() {
               onExpire={() => void reload()}
             />
           ) : null}
+          <button
+            type="button"
+            onClick={toggleSound}
+            aria-label={soundOn ? "Matikan suara" : "Nyalakan suara"}
+            title={soundOn ? "Matikan suara" : "Nyalakan suara"}
+            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-cloud bg-white text-ink-soft transition hover:border-ocean/60"
+          >
+            {soundOn ? (
+              <VolumeOnIcon className="h-4 w-4" />
+            ) : (
+              <VolumeOffIcon className="h-4 w-4" />
+            )}
+          </button>
           <ModeBadge />
           <button
             type="button"
-            onClick={() => setActiveCode(null)}
+            onClick={() => {
+              setAlert(null);
+              setActiveCode(null);
+            }}
             className="text-sm font-extrabold text-ink-soft underline"
           >
             Ganti Kode
@@ -205,6 +283,17 @@ function DisplayInner() {
           </section>
         </div>
       )}
+
+      {alert ? (
+        <TeamLeaveAlert
+          key={alert.id}
+          teamName={alert.teamName}
+          color={alert.color}
+          onDone={() =>
+            setAlert((current) => (current?.id === alert.id ? null : current))
+          }
+        />
+      ) : null}
     </main>
   );
 }

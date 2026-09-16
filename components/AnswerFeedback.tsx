@@ -14,6 +14,7 @@ interface AnswerFeedbackProps {
   levelUp?: boolean;
   level?: number;
   message?: string;
+  onDismiss?: () => void;
 }
 
 interface ConfettiPiece {
@@ -68,6 +69,7 @@ export default function AnswerFeedback({
   levelUp = false,
   level,
   message,
+  onDismiss,
 }: AnswerFeedbackProps) {
   const correct = variant === "correct";
   const [shown, setShown] = useState(0);
@@ -85,7 +87,16 @@ export default function AnswerFeedback({
   }, [correct, xp]);
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center overflow-hidden">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden"
+      onClick={onDismiss}
+      role={onDismiss ? "button" : undefined}
+      tabIndex={onDismiss ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!onDismiss) return;
+        if (event.key === "Enter" || event.key === " ") onDismiss();
+      }}
+    >
       <div
         className={[
           "absolute inset-0 backdrop-blur-sm",
@@ -104,8 +115,8 @@ export default function AnswerFeedback({
                 height: piece.round ? piece.size : piece.size * 0.5,
                 backgroundColor: piece.color,
                 borderRadius: piece.round ? "9999px" : "2px",
-                animationDelay: `${piece.delay}s`,
-                animationDuration: `${piece.duration}s`,
+                animationDelay: `${piece.delay * 0.35}s`,
+                animationDuration: `${Math.min(piece.duration, 1.1)}s`,
               }}
             />
           ))
@@ -196,6 +207,15 @@ export default function AnswerFeedback({
             </span>
           </>
         )}
+
+        {onDismiss ? (
+          <span
+            className="cc-rise mt-1 text-xs font-extrabold uppercase tracking-widest text-white/70"
+            style={{ animationDelay: "0.3s" }}
+          >
+            Ketuk untuk lanjut
+          </span>
+        ) : null}
       </div>
     </div>
   );

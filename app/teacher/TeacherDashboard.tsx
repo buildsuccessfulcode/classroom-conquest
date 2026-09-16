@@ -5,19 +5,25 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { logoutTeacher } from "@/app/actions";
 import ActivityLog from "@/components/ActivityLog";
+import AiSettingsPanel from "@/components/AiSettingsPanel";
 import CountdownTimer from "@/components/CountdownTimer";
 import Leaderboard from "@/components/Leaderboard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
-import QuestionBankImporter from "@/components/QuestionBankImporter";
+import QuestionBankImporter, {
+  type ImporterSeed,
+} from "@/components/QuestionBankImporter";
 import QuestionBoard from "@/components/QuestionBoard";
+import QuestionGenerator from "@/components/QuestionGenerator";
 import QuestionGroupList from "@/components/QuestionGroupList";
 import TimeWarningBanner from "@/components/TimeWarningBanner";
 import {
   ArrowLeftIcon,
+  BookIcon,
   LogOutIcon,
   PlayIcon,
   RefreshIcon,
+  SettingsIcon,
   StopIcon,
   TrashIcon,
 } from "@/components/icons";
@@ -36,6 +42,15 @@ import { formatDateTime } from "@/lib/format";
 import type { QuestionGroupSummary, Session } from "@/lib/types";
 
 const TEACHER_CODE_KEY = "classroom-conquest:teacher:code";
+const TEACHER_TAB_KEY = "classroom-conquest:teacher:tab";
+
+type Tab = "sesi" | "bank" | "settings";
+
+const TABS: { id: Tab; label: string; icon: typeof PlayIcon }[] = [
+  { id: "sesi", label: "Sesi", icon: PlayIcon },
+  { id: "bank", label: "Bank Soal", icon: BookIcon },
+  { id: "settings", label: "Pengaturan", icon: SettingsIcon },
+];
 
 const STATUS_LABEL: Record<string, string> = {
   LOBBY: "Menunggu",
@@ -56,12 +71,21 @@ export default function TeacherDashboard() {
   const setSelectedCode = useCallback((code: string | null) => {
     writeStoredValue(TEACHER_CODE_KEY, code);
   }, []);
-  const [duration, setDuration] = useState(30);
+  const storedTab = useStoredValue(TEACHER_TAB_KEY);
+  const tab: Tab =
+    storedTab === "bank" || storedTab === "settings" ? storedTab : "sesi";
+  const setTab = useCallback((next: Tab) => {
+    writeStoredValue(TEACHER_TAB_KEY, next);
+  }, []);
+  const [duration, setDuration] = useState("30");
   const [groups, setGroups] = useState<QuestionGroupSummary[]>([]);
   const [groupId, setGroupId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importSeed, setImportSeed] = useState<ImporterSeed | null>(null);
+  const [settingsVersion, setSettingsVersion] = useState(0);
+  const [bankResetToken, setBankResetToken] = useState(0);
 
   const { state, loading, error: stateError, reload } = useGameState(selectedCode);
 
@@ -114,7 +138,7 @@ export default function TeacherDashboard() {
     void run(async () => {
       const { code } = await createSession({
         groupId,
-        durationMinutes: duration,
+        durationMinutes: duration.trim() ? Number(duration) : 30,
       });
       setSelectedCode(code);
       setMessage(`Sesi ${code} berhasil dibuat.`);
@@ -152,8 +176,28 @@ export default function TeacherDashboard() {
     })();
   };
 
+  const handleSendToImporter = (seed: {
+    groupName: string;
+    subject: string;
+    raw: string;
+  }) => {
+    setImportSeed({ ...seed, token: Date.now() });
+    setTab("bank");
+  };
+
+  const handleResetBank = () => {
+    const confirmed = window.confirm(
+      "Reset semua isian di halaman Bank Soal? Isian yang belum diimpor akan hilang.",
+    );
+    if (!confirmed) return;
+    setImportSeed(null);
+    setBankResetToken((value) => value + 1);
+    setMessage(null);
+    setError(null);
+  };
+
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-4 py-6 sm:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Mascot mood="happy" size={56} />
@@ -183,6 +227,29 @@ export default function TeacherDashboard() {
         </div>
       </header>
 
+      <nav className="flex flex-wrap gap-2 rounded-3xl border-2 border-cloud bg-white p-1.5">
+        {TABS.map((item) => {
+          const Icon = item.icon;
+          const active = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={[
+                "cc-btn flex-1 px-4 py-2.5 text-sm",
+                active
+                  ? "border-ocean-dark bg-ocean-soft text-ocean-dark"
+                  : "border-transparent bg-transparent text-ink-soft",
+              ].join(" ")}
+            >
+              <Icon className="h-4 w-4" />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+
       {message ? (
         <p className="rounded-2xl border-2 border-brand-soft bg-brand-soft/50 px-4 py-2 text-sm font-bold text-brand-dark">
           {message}
@@ -194,228 +261,305 @@ export default function TeacherDashboard() {
         </p>
       ) : null}
 
-      {state ? <TimeWarningBanner session={state.session} /> : null}
+      {tab === "sesi" && state ? <TimeWarningBanner session={state.session} /> : null}
 
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_1.4fr]">
-        <div className="flex min-w-0 flex-col gap-6">
-          <section className="cc-card p-5">
-            <h2 className="cc-display mb-4 text-xl font-extrabold text-ink">
-              Buat Sesi Baru
-            </h2>
-            <form className="flex flex-col gap-4" onSubmit={handleCreate}>
-              <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
-                Group Soal
-                <select
-                  value={groupId}
-                  onChange={(event) => setGroupId(event.target.value)}
-                  className="w-full min-w-0 rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
-                  required
-                >
-                  <option value="" disabled>
-                    Pilih group soal
-                  </option>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name} ({group.subject}) · {group.question_count} soal
+      {tab === "sesi" ? (
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_1.4fr]">
+          <div className="flex min-w-0 flex-col gap-6">
+            <section className="cc-card p-5">
+              <h2 className="cc-display mb-4 text-xl font-extrabold text-ink">
+                Buat Sesi Baru
+              </h2>
+              <form className="flex flex-col gap-4" onSubmit={handleCreate}>
+                <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
+                  Group Soal
+                  <select
+                    value={groupId}
+                    onChange={(event) => setGroupId(event.target.value)}
+                    className="w-full min-w-0 rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                    required
+                  >
+                    <option value="" disabled>
+                      Pilih group soal
                     </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
-                Durasi (menit)
-                <input
-                  type="number"
-                  min={5}
-                  max={120}
-                  value={duration}
-                  onChange={(event) => setDuration(Number(event.target.value))}
-                  className="w-full min-w-0 rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
-                />
-              </label>
-              <p className="text-xs font-semibold text-ink-soft">
-                Nomor soal mengikuti seluruh soal dalam group, dibuat otomatis
-                saat sesi dibuat.
-              </p>
-              {groups.length === 0 ? (
-                <p className="rounded-2xl bg-sun-soft px-3 py-2 text-xs font-bold text-sun-dark">
-                  Belum ada group soal. Impor soal terlebih dahulu.
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name} ({group.subject}) · {group.question_count} soal
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
+                  Durasi (menit)
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={duration}
+                    onChange={(event) => setDuration(event.target.value)}
+                    className="w-full min-w-0 rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                  />
+                </label>
+                <p className="text-xs font-semibold text-ink-soft">
+                  Nomor soal mengikuti seluruh soal dalam group, dibuat otomatis
+                  saat sesi dibuat.
                 </p>
-              ) : null}
-              <button
-                type="submit"
-                disabled={busy || groups.length === 0}
-                className="cc-btn border-brand-dark bg-brand p-3.5 text-white"
-              >
-                Buat Sesi
-              </button>
-            </form>
-          </section>
+                {groups.length === 0 ? (
+                  <p className="rounded-2xl bg-sun-soft px-3 py-2 text-xs font-bold text-sun-dark">
+                    Belum ada group soal. Impor soal di tab Bank Soal.
+                  </p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={busy || groups.length === 0}
+                  className="cc-btn border-brand-dark bg-brand p-3.5 text-white"
+                >
+                  Buat Sesi
+                </button>
+              </form>
+            </section>
 
-          <QuestionBankImporter onImported={refreshGroups} />
+            <section className="cc-card p-5">
+              <h2 className="cc-display mb-4 text-xl font-extrabold text-ink">
+                Sesi Terbaru
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {sessions.length === 0 ? (
+                  <li className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
+                    Belum ada sesi.
+                  </li>
+                ) : (
+                  sessions.map((session) => (
+                    <li key={session.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCode(session.session_code)}
+                        className={[
+                          "flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border-2 px-3 py-2.5 text-left text-sm transition",
+                          selectedCode === session.session_code
+                            ? "border-ocean bg-ocean-soft"
+                            : "border-cloud bg-white hover:border-ocean/60",
+                        ].join(" ")}
+                      >
+                        <span className="shrink-0 font-mono font-extrabold text-ink">
+                          {session.session_code}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-semibold text-ink-soft">
+                          {session.subject_name}
+                        </span>
+                        <span className="shrink-0 text-xs font-bold text-ink-soft">
+                          {formatDateTime(session.created_at)}
+                        </span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </section>
+          </div>
 
-          <QuestionGroupList groups={groups} onChanged={refreshGroups} />
-
-          <section className="cc-card p-5">
-            <h2 className="cc-display mb-4 text-xl font-extrabold text-ink">
-              Sesi Terbaru
-            </h2>
-            <ul className="flex flex-col gap-2">
-              {sessions.length === 0 ? (
-                <li className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
-                  Belum ada sesi.
-                </li>
+          <div className="flex min-w-0 flex-col gap-6">
+            <section className="cc-card p-5">
+              {!selectedCode ? (
+                <p className="rounded-2xl bg-snow px-4 py-10 text-center text-sm font-bold text-ink-soft">
+                  Pilih atau buat sesi untuk mulai memantau.
+                </p>
+              ) : loading && !state ? (
+                <p className="text-sm font-bold text-ink-soft">Memuat sesi...</p>
+              ) : stateError || !state ? (
+                <p className="text-sm font-bold text-cherry-dark">
+                  {stateError ?? "Sesi tidak ditemukan"}
+                </p>
               ) : (
-                sessions.map((session) => (
-                  <li key={session.id}>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-wide text-ink-soft">
+                        Kode Sesi
+                      </p>
+                      <p className="cc-display font-mono text-4xl font-extrabold tracking-[0.2em] text-ocean-dark">
+                        {state.session.session_code}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-extrabold ${
+                          STATUS_STYLE[state.session.status] ??
+                          "bg-cloud text-ink-soft"
+                        }`}
+                      >
+                        {STATUS_LABEL[state.session.status] ?? state.session.status}
+                      </span>
+                      <CountdownTimer
+                        session={state.session}
+                        size="md"
+                        onExpire={() => void reload()}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setSelectedCode(session.session_code)}
-                      className={[
-                        "flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border-2 px-3 py-2.5 text-left text-sm transition",
-                        selectedCode === session.session_code
-                          ? "border-ocean bg-ocean-soft"
-                          : "border-cloud bg-white hover:border-ocean/60",
-                      ].join(" ")}
+                      disabled={busy || state.session.status === "PLAYING"}
+                      onClick={() => handleSessionAction("start")}
+                      className="cc-btn border-brand-dark bg-brand px-4 py-2.5 text-sm text-white"
                     >
-                      <span className="shrink-0 font-mono font-extrabold text-ink">
-                        {session.session_code}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-semibold text-ink-soft">
-                        {session.subject_name}
-                      </span>
-                      <span className="shrink-0 text-xs font-bold text-ink-soft">
-                        {formatDateTime(session.created_at)}
-                      </span>
+                      <PlayIcon className="h-4 w-4" />
+                      Mulai
                     </button>
-                  </li>
-                ))
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleSessionAction("reset")}
+                      className="cc-btn border-mango-dark bg-mango px-4 py-2.5 text-sm text-white"
+                    >
+                      <RefreshIcon className="h-4 w-4" />
+                      Reset
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || state.session.status === "ENDED"}
+                      onClick={() => handleSessionAction("end")}
+                      className="cc-btn border-cloud bg-white px-4 py-2.5 text-sm text-ink-soft"
+                    >
+                      <StopIcon className="h-4 w-4" />
+                      Akhiri
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleSessionAction("delete")}
+                      className="cc-btn border-cherry-dark bg-cherry px-4 py-2.5 text-sm text-white"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                      Hapus
+                    </button>
+                  </div>
+
+                  {state.slots.length === 0 ? (
+                    <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
+                      Nomor soal akan dibuat otomatis saat Anda menekan
+                      &ldquo;Mulai&rdquo;.
+                    </p>
+                  ) : (
+                    <div className="grid min-w-0 gap-4 md:grid-cols-[1.2fr_1fr]">
+                      <div className="min-w-0">
+                        <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
+                          Papan Nomor ({state.slots.length} soal)
+                        </h3>
+                        <QuestionBoard
+                          mode="display"
+                          totalSlots={state.slots.length}
+                          teams={state.teams}
+                          answers={state.answers}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-4">
+                        <div>
+                          <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
+                            Peringkat
+                          </h3>
+                          <Leaderboard
+                            teams={state.teams}
+                            answers={state.answers}
+                            totalSlots={state.slots.length}
+                            variant="list"
+                          />
+                        </div>
+                        <div>
+                          <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
+                            Aktivitas
+                          </h3>
+                          <ActivityLog logs={state.logs} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
+            </section>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "bank" ? (
+        <div className="flex min-w-0 flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink-soft">
+              Generate atau impor soal, lalu kelola group yang tersimpan.
+            </p>
+            <button
+              type="button"
+              onClick={handleResetBank}
+              className="cc-btn border-cloud bg-white px-3 py-2 text-xs text-ink-soft"
+            >
+              <RefreshIcon className="h-4 w-4" />
+              Reset Isian
+            </button>
+          </div>
+          <QuestionGenerator
+            key={`generator-${bankResetToken}`}
+            onSendToImporter={handleSendToImporter}
+            onOpenSettings={() => setTab("settings")}
+            refreshToken={settingsVersion}
+          />
+          <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+            <QuestionBankImporter
+              key={`${importSeed?.token ?? "importer"}:${bankResetToken}`}
+              onImported={refreshGroups}
+              initialGroupName={importSeed?.groupName}
+              initialSubject={importSeed?.subject}
+              initialRaw={importSeed?.raw}
+            />
+            <QuestionGroupList groups={groups} onChanged={refreshGroups} />
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "settings" ? (
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[1.2fr_1fr]">
+          <AiSettingsPanel onChanged={() => setSettingsVersion((v) => v + 1)} />
+          <section className="cc-card p-5">
+            <h2 className="cc-display mb-4 text-xl font-extrabold text-ink">
+              Bantuan Cepat
+            </h2>
+            <ul className="flex flex-col gap-3 text-sm font-semibold text-ink-soft">
+              <li>
+                Buat API key gratis di{" "}
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-extrabold text-ocean-dark underline"
+                >
+                  Google AI Studio
+                </a>
+                , lalu tempel di kolom API key.
+              </li>
+              <li>
+                Soal yang di-generate tetap dapat disalin dan diimpor manual di
+                tab Bank Soal.
+              </li>
+              <li>
+                Ingin menyusun soal sendiri? Unduh{" "}
+                <a
+                  href="/sample-questions.json"
+                  download
+                  className="font-extrabold text-ocean-dark underline"
+                >
+                  contoh JSON
+                </a>{" "}
+                sebagai acuan format.
+              </li>
+              <li>
+                Panduan lengkap format soal ada di{" "}
+                <span className="font-mono">docs/PROMPT_GENERATE_SOAL.md</span>.
+              </li>
             </ul>
           </section>
         </div>
-
-        <div className="flex min-w-0 flex-col gap-6">
-          <section className="cc-card p-5">
-            {!selectedCode ? (
-              <p className="rounded-2xl bg-snow px-4 py-10 text-center text-sm font-bold text-ink-soft">
-                Pilih atau buat sesi untuk mulai memantau.
-              </p>
-            ) : loading && !state ? (
-              <p className="text-sm font-bold text-ink-soft">Memuat sesi...</p>
-            ) : stateError || !state ? (
-              <p className="text-sm font-bold text-cherry-dark">
-                {stateError ?? "Sesi tidak ditemukan"}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-extrabold uppercase tracking-wide text-ink-soft">
-                      Kode Sesi
-                    </p>
-                    <p className="cc-display font-mono text-4xl font-extrabold tracking-[0.2em] text-ocean-dark">
-                      {state.session.session_code}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-extrabold ${
-                        STATUS_STYLE[state.session.status] ?? "bg-cloud text-ink-soft"
-                      }`}
-                    >
-                      {STATUS_LABEL[state.session.status] ?? state.session.status}
-                    </span>
-                    <CountdownTimer
-                      session={state.session}
-                      size="md"
-                      onExpire={() => void reload()}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy || state.session.status === "PLAYING"}
-                    onClick={() => handleSessionAction("start")}
-                    className="cc-btn border-brand-dark bg-brand px-4 py-2.5 text-sm text-white"
-                  >
-                    <PlayIcon className="h-4 w-4" />
-                    Mulai
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => handleSessionAction("reset")}
-                    className="cc-btn border-mango-dark bg-mango px-4 py-2.5 text-sm text-white"
-                  >
-                    <RefreshIcon className="h-4 w-4" />
-                    Reset
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || state.session.status === "ENDED"}
-                    onClick={() => handleSessionAction("end")}
-                    className="cc-btn border-cloud bg-white px-4 py-2.5 text-sm text-ink-soft"
-                  >
-                    <StopIcon className="h-4 w-4" />
-                    Akhiri
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => handleSessionAction("delete")}
-                    className="cc-btn border-cherry-dark bg-cherry px-4 py-2.5 text-sm text-white"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                    Hapus
-                  </button>
-                </div>
-
-                {state.slots.length === 0 ? (
-                  <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
-                    Nomor soal akan dibuat otomatis saat Anda menekan
-                    &ldquo;Mulai&rdquo;.
-                  </p>
-                ) : (
-                  <div className="grid min-w-0 gap-4 md:grid-cols-[1.2fr_1fr]">
-                    <div className="min-w-0">
-                      <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
-                        Papan Nomor ({state.slots.length} soal)
-                      </h3>
-                      <QuestionBoard
-                        mode="display"
-                        totalSlots={state.slots.length}
-                        teams={state.teams}
-                        answers={state.answers}
-                      />
-                    </div>
-                    <div className="flex min-w-0 flex-col gap-4">
-                      <div>
-                        <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
-                          Peringkat
-                        </h3>
-                        <Leaderboard
-                          teams={state.teams}
-                          answers={state.answers}
-                          totalSlots={state.slots.length}
-                          variant="list"
-                        />
-                      </div>
-                      <div>
-                        <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
-                          Aktivitas
-                        </h3>
-                        <ActivityLog logs={state.logs} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
+      ) : null}
     </main>
   );
 }
