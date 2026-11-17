@@ -11,6 +11,7 @@ interface QuestionCardProps {
   readOnly?: boolean;
   attemptsLeft?: number;
   correctAnswer?: string;
+  rewardLabel?: string;
   onSubmit: (answer: string) => void;
 }
 
@@ -62,6 +63,7 @@ export default function QuestionCard({
   readOnly = false,
   attemptsLeft,
   correctAnswer,
+  rewardLabel,
   onSubmit,
 }: QuestionCardProps) {
   const [input, setInput] = useState("");
@@ -88,7 +90,7 @@ export default function QuestionCard({
         </span>
         <span className="flex items-center gap-1 rounded-full bg-grape-soft px-3 py-1 text-xs font-extrabold text-grape-dark">
           <BoltIcon className="h-3.5 w-3.5" />
-          {question.points} XP
+          {rewardLabel ?? `${question.points} XP`}
         </span>
         {typeof attemptsLeft === "number" && !readOnly ? (
           <span className="ml-auto rounded-full bg-snow px-3 py-1 text-xs font-extrabold text-ink-soft">

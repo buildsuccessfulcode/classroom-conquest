@@ -239,6 +239,24 @@ body {
   }
 }
 
+@keyframes cc-dice-roll {
+  0% {
+    transform: rotate(0deg) translateY(0) scale(1);
+  }
+  25% {
+    transform: rotate(85deg) translateY(-6px) scale(0.96);
+  }
+  50% {
+    transform: rotate(175deg) translateY(0) scale(1.03);
+  }
+  75% {
+    transform: rotate(265deg) translateY(-4px) scale(0.97);
+  }
+  100% {
+    transform: rotate(360deg) translateY(0) scale(1);
+  }
+}
+
 @keyframes cc-flame {
   0%,
   100% {
@@ -306,6 +324,10 @@ body {
 
 .cc-bounce-in {
   animation: cc-bounce-in 0.35s cubic-bezier(0.22, 1.4, 0.36, 1) both;
+}
+
+.cc-dice-roll {
+  animation: cc-dice-roll 0.36s linear infinite;
 }
 
 .cc-flame {
@@ -408,7 +430,8 @@ body {
 [data-lite="true"] .cc-float,
 [data-lite="true"] .cc-bob,
 [data-lite="true"] .cc-flame,
-[data-lite="true"] .cc-shine {
+[data-lite="true"] .cc-shine,
+[data-lite="true"] .cc-dice-roll {
   animation: none !important;
 }
 
@@ -429,6 +452,7 @@ body {
   .cc-wiggle,
   .cc-slide-up,
   .cc-bounce-in,
+  .cc-dice-roll,
   .cc-flame,
   .cc-progress,
   .cc-shine,

@@ -25,7 +25,10 @@ export default function CountdownTimer({
   showProgress = false,
   onExpire,
 }: CountdownTimerProps) {
-  const now = useServerNow();
+  const fallbackNow = session.started_at
+    ? new Date(session.started_at).getTime()
+    : 0;
+  const now = useServerNow(fallbackNow);
   const seconds = remainingSeconds(session, now) ?? 0;
   const firedRef = useRef(false);
   const total = session.duration_minutes * 60;

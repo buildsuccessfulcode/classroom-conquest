@@ -19,6 +19,8 @@ Satu sesi permainan kelas.
 | `subject_name` | `varchar(100)` | Mata pelajaran (disalin dari group) |
 | `is_active` | `boolean` | `true` selama sesi berjalan |
 | `status` | `varchar(20)` | `LOBBY` / `PLAYING` / `ENDED` |
+| `game_mode` | `varchar(10)` | `CLASSIC` (default) / `SNAKES` |
+| `board_config` | `jsonb` | Konfigurasi papan Ular Tangga: `{ goal, preset, seed, ladders, snakes }` |
 | `duration_minutes` | `int` | 5–120, default 30 |
 | `started_at` | `timestamptz` | Diisi saat sesi dimulai |
 | `ended_at` | `timestamptz` | Diisi saat sesi diakhiri |
@@ -33,7 +35,10 @@ Tim/kelompok yang mendaftar mandiri.
 | `session_id` | `uuid` | FK → `sessions` `ON DELETE CASCADE` |
 | `team_name` | `varchar(50)` | UNIQUE per sesi |
 | `color_code` | `varchar(7)` | Hex, mis. `#FF5733` |
-| `score` | `int` | Default 0 (disinkronkan dari `answers`) |
+| `avatar` | `varchar(30)` | Id avatar SVG (mode Ular Tangga), null di mode klasik |
+| `position` | `int` | Petak bidak saat ini (mode Ular Tangga), default 0 |
+| `finished_at` | `timestamptz` | Diisi saat bidak mencapai finis |
+| `score` | `int` | Default 0 (mode klasik; disinkronkan dari `answers`) |
 | `joined_at` | `timestamptz` | |
 
 ### `question_groups`
@@ -90,6 +95,26 @@ Jawaban **benar** per tim. Jawaban salah tidak disimpan di sini (hanya di log).
 
 Batasan: UNIQUE `(session_id, team_id, slot_number)` mencegah poin ganda.
 
+### `moves`
+Riwayat langkah mode Ular Tangga. Satu baris per soal per tim (benar maupun salah).
+
+| Kolom | Tipe | Catatan |
+| :--- | :--- | :--- |
+| `id` | `uuid` | PK |
+| `session_id` | `uuid` | FK → `sessions` `ON DELETE CASCADE` |
+| `team_id` | `uuid` | FK → `teams` `ON DELETE CASCADE` |
+| `slot_number` | `int` | Nomor soal |
+| `question_id` | `uuid` | FK → `questions` `ON DELETE CASCADE` |
+| `correct` | `boolean` | Hasil jawaban |
+| `points` | `int` | Poin soal mentah |
+| `delta` | `int` | Perubahan petak hasil undian sesuai kesulitan (Mudah 2–4, Sedang 5–8, Sulit 9–12; 0 saat salah) |
+| `from_position` | `int` | Posisi sebelum langkah |
+| `to_position` | `int` | Posisi akhir setelah ular/tangga |
+| `jump` | `int` | Efek ular/tangga (positif naik, negatif turun) |
+| `created_at` | `timestamptz` | |
+
+Batasan: UNIQUE `(session_id, team_id, slot_number)` membuat soal hangus setelah dipakai.
+
 ### `activity_logs`
 Feed untuk panel "Log Aktivitas".
 
@@ -117,7 +142,7 @@ Pengaturan aplikasi (khusus server), mis. `gemini_api_key` dan `gemini_model`.
 
 - RLS **aktif** di semua tabel.
 - **Anon/authenticated**: hanya `SELECT` pada `sessions`, `teams`, `session_questions`,
-  `answers`, `activity_logs` (dibutuhkan realtime).
+  `answers`, `moves`, `activity_logs` (dibutuhkan realtime).
 - **`questions` dan `question_groups`**: tanpa policy baca untuk anon → `correct_answer` tidak
   dapat diakses browser. Daftar group/soal di UI guru dibaca lewat Server Action (service role)
   dan hanya mengembalikan kolom aman (`PublicQuestion`).
@@ -125,8 +150,8 @@ Pengaturan aplikasi (khusus server), mis. `gemini_api_key` dan `gemini_model`.
   dapat membaca/menulis. Dipakai menyimpan `gemini_api_key`; key tidak pernah dikirim ke browser
   (UI hanya menampilkan versi tersamarkan).
 - **Semua tulis** lewat service role di Server Actions (service role melewati RLS).
-- **RPC `request_question` / `submit_answer`** di-`revoke` dari `public`, `anon`, dan
-  `authenticated`; hanya `service_role` yang boleh `execute`. Tanpa ini, klien bisa memanggil
+- **RPC `request_question` / `submit_answer` / `submit_move`** di-`revoke` dari `public`,
+  `anon`, dan `authenticated`; hanya `service_role` yang boleh `execute`. Tanpa ini, klien bisa memanggil
   `submit_answer` lewat PostgREST dan menebak kunci jawaban dari nilai `correct`.
 - Tidak ada autentikasi (sesuai PRD); jaga kode sesi tetap di dalam kelas.
 
@@ -139,6 +164,7 @@ ringan dari database lewat trigger → `realtime.send()` ke topik `game-<session
 | :--- | :--- | :--- |
 | `answer.created` | `after insert on answers` | `{ answer: {...} }` (delta satu jawaban) |
 | `team.joined` | `after insert on teams` | `{ team: {...} }` |
+| `team.moved` | `after update on teams` (hanya saat `position`/`finished_at` berubah) | `{ team: {...} }` |
 | `session.updated` | `after update on sessions` | `{ session: {...} }` |
 | `log.created` | `after insert on activity_logs` (kind `ERROR`) | `{ log: {...} }` |
 
@@ -162,6 +188,7 @@ Fungsi `broadcast_game_change()` dan `normalize_answer()` dibuat di skema. Trigg
 | `normalize_answer(text)` | Normalisasi jawaban (identik dengan `lib/game.ts`) |
 | `request_question(code, team_id, slot)` | Ambil soal + `solved` + `wrong_attempts` dalam satu round-trip |
 | `submit_answer(code, team_id, slot, answer)` | Validasi + `insert answers` + `score = score + gained` + log, atomik |
+| `submit_move(code, team_id, slot, answer)` | Validasi + hitung langkah + ular/tangga + `insert moves` + update posisi/finis + log, atomik |
 | `broadcast_game_change()` | Trigger Broadcast |
 
 `submit_answer` mengunci baris tim (`for update`) sehingga penambahan skor tidak lagi
@@ -175,9 +202,10 @@ read-modify-write dan bebas race condition.
 3. Isi `.env.local` (lihat `docs/SETUP.md`).
 
 ### Database yang sudah ada
-Jalankan `supabase/migration_optimizations.sql` (hanya menambah index, trigger, dan RPC; aman
-diulang). Skema `schema.sql` juga idempoten, tetapi migrasi ini lebih ringkas dan tidak menyentuh
-tabel/policy.
+Jalankan `supabase/migration_optimizations.sql` (menambah kolom mode Ular Tangga, tabel
+`moves`, index, trigger, dan RPC; aman diulang). Skema `schema.sql` juga idempoten, tetapi
+migrasi ini lebih ringkas. **Jalankan migrasi sebelum men-deploy kode baru** karena kode
+membaca `sessions.game_mode`/`board_config`.
 
 ## 6. Catatan Kuota
 

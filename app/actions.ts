@@ -18,24 +18,33 @@ import {
   verifyTeacherPassword,
 } from "@/lib/teacher-auth";
 import {
+  BOARD_TILE_OPTIONS,
   MAX_ATTEMPTS_PER_SLOT,
   RATE_LIMIT_MAX_REQUESTS,
   RATE_LIMIT_WINDOW_MS,
+  buildBoardConfig,
+  goalFromQuestionCount,
+  minQuestionsForBoard,
   pointsFor,
   shuffle,
 } from "@/lib/game";
+import { isAvatarId, pickAvatar } from "@/lib/avatars";
 import { createServiceClient } from "@/lib/supabase/server";
 import type {
   ActivityLog,
   AiSettings,
   Answer,
   AnswerResult,
+  BoardConfig,
+  BoardPreset,
+  GameMode,
   GameState,
   GeneratedQuestionBank,
   GenerateQuestionsInput,
   GeminiModel,
   JoinTeamResult,
   LogKind,
+  Move,
   PublicQuestion,
   Question,
   QuestionGroup,
@@ -44,6 +53,7 @@ import type {
   SeedQuestion,
   Session,
   SessionSlot,
+  SlotInfo,
   SlotQuestion,
   Team,
 } from "@/lib/types";
@@ -51,12 +61,14 @@ import type {
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 const SESSION_COLUMNS =
-  "id, session_code, group_id, subject_name, is_active, status, duration_minutes, started_at, ended_at, created_at";
+  "id, session_code, group_id, subject_name, is_active, status, game_mode, board_config, duration_minutes, started_at, ended_at, created_at";
 const TEAM_COLUMNS =
-  "id, session_id, team_name, color_code, score, joined_at, created_at";
+  "id, session_id, team_name, color_code, avatar, position, finished_at, score, joined_at, created_at";
 const SLOT_COLUMNS = "id, session_id, slot_number, question_id, created_at";
 const ANSWER_COLUMNS =
   "id, session_id, team_id, slot_number, question_id, points, answered_at";
+const MOVE_COLUMNS =
+  "id, session_id, team_id, slot_number, question_id, correct, points, delta, from_position, to_position, jump, created_at";
 const LOG_COLUMNS = "id, session_id, team_id, message, kind, created_at";
 const GROUP_COLUMNS = "id, name, subject, created_at";
 
@@ -249,6 +261,9 @@ export async function listGroupQuestions(
 export async function createSession(input: {
   groupId: string;
   durationMinutes?: number;
+  mode?: GameMode;
+  boardPreset?: BoardPreset;
+  boardGoal?: number;
 }): Promise<{ code: string }> {
   await requireTeacher();
   const client = sb();
@@ -263,6 +278,36 @@ export async function createSession(input: {
   const group = groupData as QuestionGroup | null;
   if (!group) throw new Error("Group soal tidak ditemukan");
   const duration = clampDuration(input.durationMinutes ?? 30);
+  const mode: GameMode = input.mode === "SNAKES" ? "SNAKES" : "CLASSIC";
+  let boardConfig: BoardConfig | null = null;
+  if (mode === "SNAKES") {
+    const { count: questionCount, error: countError } = await client
+      .from("questions")
+      .select("id", { count: "exact", head: true })
+      .eq("group_id", group.id);
+    if (countError) throw new Error(countError.message);
+    const count = questionCount ?? 0;
+    if (count < minQuestionsForBoard()) {
+      throw new Error(
+        `Mode Ular Tangga butuh minimal ${minQuestionsForBoard()} soal (60% dari papan minimum 10 petak). Tambah soal atau gunakan mode Klasik.`,
+      );
+    }
+    const preset: BoardPreset =
+      input.boardPreset === "MUDAH" || input.boardPreset === "SULIT"
+        ? input.boardPreset
+        : "NORMAL";
+    const requested = Number(input.boardGoal);
+    const allowedGoal = (BOARD_TILE_OPTIONS as readonly number[]).includes(
+      requested,
+    );
+    const safeGoal = goalFromQuestionCount(count);
+    const goal = allowedGoal ? Math.min(requested, safeGoal) : safeGoal;
+    boardConfig = buildBoardConfig({
+      goal,
+      preset,
+      seed: Math.floor(Math.random() * 1_000_000_000),
+    });
+  }
   let created: Session | null = null;
   for (let attempt = 0; attempt < 6 && !created; attempt += 1) {
     const code = randomCode();
@@ -275,6 +320,8 @@ export async function createSession(input: {
         duration_minutes: duration,
         status: "LOBBY",
         is_active: true,
+        game_mode: mode,
+        board_config: boardConfig,
       })
       .select(SESSION_COLUMNS)
       .single();
@@ -309,6 +356,7 @@ export async function listSessions(): Promise<Session[]> {
 export async function joinTeam(input: {
   sessionCode: string;
   teamName: string;
+  avatar?: string | null;
 }): Promise<JoinTeamResult> {
   const client = sb();
   const session = await getSessionByCode(input.sessionCode);
@@ -321,6 +369,7 @@ export async function joinTeam(input: {
   }
   const name = input.teamName.trim();
   if (!name) return { ok: false, error: "Nama tim wajib diisi" };
+  const avatar = isAvatarId(input.avatar) ? input.avatar : null;
   const { data: existing } = await client
     .from("teams")
     .select(TEAM_COLUMNS)
@@ -330,18 +379,27 @@ export async function joinTeam(input: {
   if (existing) return { ok: true, team: existing as Team };
   const { data: teams } = await client
     .from("teams")
-    .select("color_code")
+    .select("color_code, avatar")
     .eq("session_id", session.id);
-  const used = ((teams as { color_code: string }[] | null) ?? []).map(
-    (t) => t.color_code,
-  );
+  const used = (teams as { color_code: string; avatar: string | null }[] | null) ?? [];
+  const usedAvatars = used
+    .map((team) => team.avatar)
+    .filter((value): value is string => Boolean(value));
+  const chosenAvatar =
+    session.game_mode === "SNAKES"
+      ? avatar && !usedAvatars.includes(avatar)
+        ? avatar
+        : pickAvatar(usedAvatars)
+      : null;
   const { data, error } = await client
     .from("teams")
     .insert({
       session_id: session.id,
       team_name: name,
-      color_code: pickTeamColor(used),
+      color_code: pickTeamColor(used.map((team) => team.color_code)),
+      avatar: chosenAvatar,
       score: 0,
+      position: 0,
     })
     .select(TEAM_COLUMNS)
     .single();
@@ -382,11 +440,53 @@ export async function fetchGameState(
       .limit(50),
   ]);
   const logs = ((logsRes.data as ActivityLog[] | null) ?? []).reverse();
+  let moves: Move[] = [];
+  let slotInfo: SlotInfo[] = [];
+  if (activeSession.game_mode === "SNAKES") {
+    const [movesRes, slotInfoRes] = await Promise.all([
+      client
+        .from("moves")
+        .select(MOVE_COLUMNS)
+        .eq("session_id", activeSession.id)
+        .order("created_at", { ascending: true }),
+      client
+        .from("session_questions")
+        .select("slot_number, question_id, questions(type, difficulty, points)")
+        .eq("session_id", activeSession.id)
+        .order("slot_number", { ascending: true }),
+    ]);
+    moves = (movesRes.data as Move[] | null) ?? [];
+    type SlotInfoRow = {
+      slot_number: number;
+      question_id: string;
+      questions:
+        | { type: QuestionType; difficulty: "EASY" | "MEDIUM" | "HARD"; points: number }
+        | { type: QuestionType; difficulty: "EASY" | "MEDIUM" | "HARD"; points: number }[]
+        | null;
+    };
+    slotInfo = ((slotInfoRes.data as SlotInfoRow[] | null) ?? [])
+      .map((row) => {
+        const question = Array.isArray(row.questions)
+          ? row.questions[0]
+          : row.questions;
+        if (!question) return null;
+        return {
+          slot_number: row.slot_number,
+          question_id: row.question_id,
+          type: question.type,
+          difficulty: question.difficulty,
+          points: question.points,
+        };
+      })
+      .filter((row): row is SlotInfo => row !== null);
+  }
   return {
     session: activeSession,
     teams: (teamsRes.data as Team[] | null) ?? [],
     slots: (slotsRes.data as SessionSlot[] | null) ?? [],
     answers: (answersRes.data as Answer[] | null) ?? [],
+    moves,
+    slotInfo,
     logs,
     serverTime: new Date().toISOString(),
   };
@@ -407,19 +507,24 @@ export async function requestQuestion(input: {
   const row = data as {
     question: Question;
     solved: boolean;
+    used?: boolean;
     wrong_attempts: number;
   } | null;
   if (!row || !row.question) throw new Error("Soal tidak ditemukan");
   const wrongAttempts = row.wrong_attempts ?? 0;
-  const locked = wrongAttempts >= MAX_ATTEMPTS_PER_SLOT;
+  const used = Boolean(row.used);
+  const locked = wrongAttempts >= MAX_ATTEMPTS_PER_SLOT || used;
   return {
     slotNumber: input.slotNumber,
     question: withShuffledChoices(toPublicQuestion(row.question)),
     solved: row.solved,
+    used,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
     locked,
     correctAnswer:
-      row.solved || locked ? row.question.correct_answer : undefined,
+      row.solved || (locked && !used)
+        ? row.question.correct_answer
+        : undefined,
   };
 }
 
@@ -440,6 +545,42 @@ export async function submitAnswer(input: {
   const row = data as AnswerResult | null;
   if (!row) throw new Error("Gagal memproses jawaban");
   return row;
+}
+
+export async function submitMove(input: {
+  sessionCode: string;
+  teamId: string;
+  slotNumber: number;
+  answer: string;
+}): Promise<AnswerResult> {
+  enforceRateLimit(`${input.sessionCode}:${input.teamId}`);
+  const { data, error } = await sb().rpc("submit_move", {
+    p_session_code: input.sessionCode,
+    p_team_id: input.teamId,
+    p_slot_number: input.slotNumber,
+    p_answer: input.answer,
+  });
+  if (error) throw new Error(error.message);
+  const row = data as AnswerResult | null;
+  if (!row) throw new Error("Gagal memproses langkah");
+  return row;
+}
+
+export async function getSessionPreview(sessionCode: string): Promise<{
+  mode: GameMode;
+  status: string;
+} | null> {
+  const code = sessionCode.trim().toUpperCase();
+  if (!code) return null;
+  const { data, error } = await sb()
+    .from("sessions")
+    .select("game_mode, status")
+    .eq("session_code", code)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const row = data as { game_mode: GameMode; status: string } | null;
+  if (!row) return null;
+  return { mode: row.game_mode, status: row.status };
 }
 
 export async function reportFocusEvent(input: {
@@ -592,6 +733,7 @@ export async function resetSession(sessionCode: string): Promise<void> {
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
   await client.from("answers").delete().eq("session_id", session.id);
+  await client.from("moves").delete().eq("session_id", session.id);
   await client.from("activity_logs").delete().eq("session_id", session.id);
   await client.from("teams").delete().eq("session_id", session.id);
   await client

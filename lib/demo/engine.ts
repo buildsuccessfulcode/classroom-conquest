@@ -1,21 +1,32 @@
 import { pickTeamColor } from "../colors";
+import { isAvatarId, pickAvatar } from "../avatars";
 import {
+  BOARD_TILE_OPTIONS,
   MAX_ATTEMPTS_PER_SLOT,
   RATE_LIMIT_MAX_REQUESTS,
   RATE_LIMIT_WINDOW_MS,
+  buildBoardConfig,
   countWrongAttempts,
+  goalFromQuestionCount,
   isAnswerCorrect,
   isRapidFire,
+  minQuestionsForBoard,
   pointsFor,
+  resolveBoardMove,
   shuffle,
+  stepsForDifficulty,
 } from "../game";
 import type {
   ActivityLog,
   Answer,
   AnswerResult,
+  BoardConfig,
+  BoardPreset,
+  GameMode,
   GameState,
   JoinTeamResult,
   LogKind,
+  Move,
   PublicQuestion,
   Question,
   QuestionGroup,
@@ -23,11 +34,13 @@ import type {
   SeedQuestion,
   Session,
   SessionSlot,
+  SlotInfo,
   SlotQuestion,
   Team,
 } from "../types";
 
-const STORAGE_KEY = "classroom-conquest:demo:v3";
+const STORAGE_KEY = "classroom-conquest:demo:v4";
+const LEGACY_STORAGE_KEY = "classroom-conquest:demo:v3";
 const CHANNEL_NAME = "classroom-conquest-demo";
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -54,6 +67,7 @@ interface DemoDB {
   questions: Question[];
   slots: SessionSlot[];
   answers: Answer[];
+  moves: Move[];
   logs: ActivityLog[];
 }
 
@@ -81,25 +95,42 @@ function emptyDB(): DemoDB {
     questions: [],
     slots: [],
     answers: [],
+    moves: [],
     logs: [],
+  };
+}
+
+function normalizeDB(parsed: Partial<DemoDB>): DemoDB {
+  return {
+    sessions: (parsed.sessions ?? []).map((session) => ({
+      ...session,
+      game_mode: session.game_mode === "SNAKES" ? "SNAKES" : "CLASSIC",
+      board_config: session.board_config ?? null,
+    })),
+    teams: (parsed.teams ?? []).map((team) => ({
+      ...team,
+      avatar: team.avatar ?? null,
+      position: team.position ?? 0,
+      finished_at: team.finished_at ?? null,
+    })),
+    groups: parsed.groups ?? [],
+    questions: parsed.questions ?? [],
+    slots: parsed.slots ?? [],
+    answers: parsed.answers ?? [],
+    moves: parsed.moves ?? [],
+    logs: parsed.logs ?? [],
   };
 }
 
 function load(): DemoDB {
   if (typeof window === "undefined") return emptyDB();
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw =
+    window.localStorage.getItem(STORAGE_KEY) ??
+    window.localStorage.getItem(LEGACY_STORAGE_KEY);
   if (!raw) return emptyDB();
   try {
     const parsed = JSON.parse(raw) as Partial<DemoDB>;
-    return {
-      sessions: parsed.sessions ?? [],
-      teams: parsed.teams ?? [],
-      groups: parsed.groups ?? [],
-      questions: parsed.questions ?? [],
-      slots: parsed.slots ?? [],
-      answers: parsed.answers ?? [],
-      logs: parsed.logs ?? [],
-    };
+    return normalizeDB(parsed);
   } catch {
     return emptyDB();
   }
@@ -227,6 +258,9 @@ export async function listGroupQuestions(
 export async function createSession(input: {
   groupId: string;
   durationMinutes?: number;
+  mode?: GameMode;
+  boardPreset?: BoardPreset;
+  boardGoal?: number;
 }): Promise<{ code: string }> {
   const db = load();
   const groupId = input.groupId?.trim();
@@ -234,6 +268,33 @@ export async function createSession(input: {
   const group = db.groups.find((g) => g.id === groupId);
   if (!group) throw new Error("Group soal tidak ditemukan");
   const duration = Math.min(120, Math.max(5, input.durationMinutes ?? 30));
+  const mode: GameMode = input.mode === "SNAKES" ? "SNAKES" : "CLASSIC";
+  let boardConfig: BoardConfig | null = null;
+  if (mode === "SNAKES") {
+    const questionCount = db.questions.filter(
+      (question) => question.group_id === group.id,
+    ).length;
+    if (questionCount < minQuestionsForBoard()) {
+      throw new Error(
+        `Mode Ular Tangga butuh minimal ${minQuestionsForBoard()} soal (60% dari papan minimum 10 petak). Tambah soal atau gunakan mode Klasik.`,
+      );
+    }
+    const preset: BoardPreset =
+      input.boardPreset === "MUDAH" || input.boardPreset === "SULIT"
+        ? input.boardPreset
+        : "NORMAL";
+    const requested = Number(input.boardGoal);
+    const allowedGoal = (BOARD_TILE_OPTIONS as readonly number[]).includes(
+      requested,
+    );
+    const safeGoal = goalFromQuestionCount(questionCount);
+    const goal = allowedGoal ? Math.min(requested, safeGoal) : safeGoal;
+    boardConfig = buildBoardConfig({
+      goal,
+      preset,
+      seed: Math.floor(Math.random() * 1_000_000_000),
+    });
+  }
   let code = randomCode();
   while (db.sessions.some((s) => s.session_code === code)) code = randomCode();
   const session: Session = {
@@ -243,6 +304,8 @@ export async function createSession(input: {
     subject_name: group.subject,
     is_active: true,
     status: "LOBBY",
+    game_mode: mode,
+    board_config: boardConfig,
     duration_minutes: duration,
     started_at: null,
     ended_at: null,
@@ -271,6 +334,7 @@ export async function listSessions(): Promise<Session[]> {
 export async function joinTeam(input: {
   sessionCode: string;
   teamName: string;
+  avatar?: string | null;
 }): Promise<JoinTeamResult> {
   const db = load();
   const session = findSession(db, input.sessionCode);
@@ -289,14 +353,26 @@ export async function joinTeam(input: {
       t.team_name.toLowerCase() === name.toLowerCase(),
   );
   if (existing) return { ok: true, team: existing };
-  const used = db.teams
-    .filter((t) => t.session_id === session.id)
-    .map((t) => t.color_code);
+  const sessionTeams = db.teams.filter((t) => t.session_id === session.id);
+  const used = sessionTeams.map((t) => t.color_code);
+  const usedAvatars = sessionTeams
+    .map((item) => item.avatar)
+    .filter((value): value is string => Boolean(value));
+  const requestedAvatar = isAvatarId(input.avatar) ? input.avatar : null;
+  const chosenAvatar =
+    session.game_mode === "SNAKES"
+      ? requestedAvatar && !usedAvatars.includes(requestedAvatar)
+        ? requestedAvatar
+        : pickAvatar(usedAvatars)
+      : null;
   const team: Team = {
     id: uid(),
     session_id: session.id,
     team_name: name,
     color_code: pickTeamColor(used),
+    avatar: chosenAvatar,
+    position: 0,
+    finished_at: null,
     score: 0,
     joined_at: nowIso(),
   };
@@ -325,17 +401,38 @@ export async function fetchGameState(
     );
     save(db);
   }
+  const sessionSlots = db.slots
+    .filter((s) => s.session_id === session.id)
+    .sort((a, b) => a.slot_number - b.slot_number);
+  const slotInfo: SlotInfo[] =
+    session.game_mode === "SNAKES"
+      ? sessionSlots
+          .map((slot) => {
+            const question = db.questions.find((q) => q.id === slot.question_id);
+            if (!question) return null;
+            return {
+              slot_number: slot.slot_number,
+              question_id: slot.question_id,
+              type: question.type,
+              difficulty: question.difficulty,
+              points: question.points,
+            };
+          })
+          .filter((row): row is SlotInfo => row !== null)
+      : [];
   return {
     session,
     teams: db.teams
       .filter((t) => t.session_id === session.id)
       .sort((a, b) => a.joined_at.localeCompare(b.joined_at)),
-    slots: db.slots
-      .filter((s) => s.session_id === session.id)
-      .sort((a, b) => a.slot_number - b.slot_number),
+    slots: sessionSlots,
     answers: db.answers
       .filter((a) => a.session_id === session.id)
       .sort((a, b) => a.answered_at.localeCompare(b.answered_at)),
+    moves: db.moves
+      .filter((move) => move.session_id === session.id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    slotInfo,
     logs: db.logs
       .filter((l) => l.session_id === session.id)
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -372,20 +469,28 @@ export async function requestQuestion(input: {
       a.team_id === team.id &&
       a.slot_number === input.slotNumber,
   );
+  const used = db.moves.some(
+    (move) =>
+      move.session_id === session.id &&
+      move.team_id === team.id &&
+      move.slot_number === input.slotNumber,
+  );
   const wrongAttempts = countWrongAttemptsForSlot(
     db,
     session.id,
     team.id,
     input.slotNumber,
   );
-  const locked = wrongAttempts >= MAX_ATTEMPTS_PER_SLOT;
+  const locked = wrongAttempts >= MAX_ATTEMPTS_PER_SLOT || used;
   return {
     slotNumber: input.slotNumber,
     question: withShuffledChoices(toPublicQuestion(question)),
     solved,
+    used,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
     locked,
-    correctAnswer: solved || locked ? question.correct_answer : undefined,
+    correctAnswer:
+      solved || (locked && !used) ? question.correct_answer : undefined,
   };
 }
 
@@ -502,6 +607,130 @@ export async function submitAnswer(input: {
   };
 }
 
+export async function submitMove(input: {
+  sessionCode: string;
+  teamId: string;
+  slotNumber: number;
+  answer: string;
+}): Promise<AnswerResult> {
+  const db = load();
+  const session = findSession(db, input.sessionCode);
+  if (!session) throw new Error("Sesi tidak ditemukan");
+  if (session.game_mode !== "SNAKES") {
+    throw new Error("Sesi ini bukan mode Ular Tangga");
+  }
+  if (session.status === "ENDED") throw new Error("Sesi sudah berakhir");
+  if (session.status !== "PLAYING") throw new Error("Sesi belum dimulai");
+  if (isSessionTimeUp(session)) throw new Error("Waktu sesi sudah habis");
+  const team = db.teams.find(
+    (t) => t.id === input.teamId && t.session_id === session.id,
+  );
+  if (!team) throw new Error("Tim tidak terdaftar di sesi ini");
+  if (team.finished_at) throw new Error("Tim Anda sudah mencapai finis");
+  enforceRateLimit(`${session.id}:${team.id}`);
+  const slot = db.slots.find(
+    (s) => s.session_id === session.id && s.slot_number === input.slotNumber,
+  );
+  if (!slot) throw new Error("Nomor soal tidak ditemukan");
+  const used = db.moves.some(
+    (move) =>
+      move.session_id === session.id &&
+      move.team_id === team.id &&
+      move.slot_number === input.slotNumber,
+  );
+  if (used) throw new Error("Soal ini sudah dipakai tim Anda");
+  const question = db.questions.find((q) => q.id === slot.question_id);
+  if (!question) throw new Error("Soal tidak ditemukan");
+  const config = session.board_config;
+  if (!config) throw new Error("Papan belum siap");
+
+  const correct = isAnswerCorrect(question, input.answer);
+  const points =
+    question.points > 0 ? question.points : pointsFor(question.difficulty);
+  const steps = stepsForDifficulty(question.difficulty);
+  const delta = correct ? steps : 0;
+  const from = team.position ?? 0;
+  const resolved = resolveBoardMove(from, delta, config);
+  const finished = correct && resolved.finished;
+
+  db.moves.push({
+    id: uid(),
+    session_id: session.id,
+    team_id: team.id,
+    slot_number: input.slotNumber,
+    question_id: question.id,
+    correct,
+    points,
+    delta,
+    from_position: from,
+    to_position: resolved.position,
+    jump: resolved.jump,
+    created_at: nowIso(),
+  });
+
+  let message: string;
+  if (correct) {
+    team.position = resolved.position;
+    message = `Benar! Maju ${steps} petak`;
+    if (finished) {
+      team.finished_at = nowIso();
+      message = "Benar! Bidak mencapai finis.";
+    } else if (resolved.jump > 0) {
+      message = `${message}. Naik tangga ke petak ${resolved.position}`;
+    } else if (resolved.jump < 0) {
+      message = `${message}. Kena ular, turun ke petak ${resolved.position}`;
+    } else {
+      message = `${message}. Bidak di petak ${resolved.position}`;
+    }
+  } else {
+    message = `Jawaban belum tepat. Bidak tetap di petak ${from}, soal hangus.`;
+  }
+
+  addLog(
+    db,
+    session.id,
+    team.id,
+    `Tim ${team.team_name}: ${message}`,
+    correct ? "CLAIM" : "INFO",
+  );
+
+  if (finished) {
+    session.status = "ENDED";
+    session.is_active = false;
+    session.ended_at = nowIso();
+    addLog(
+      db,
+      session.id,
+      team.id,
+      `Tim ${team.team_name} mencapai finis dan memenangkan permainan!`,
+      "SYSTEM",
+    );
+  }
+
+  save(db);
+  return {
+    correct,
+    message,
+    gainedPoints: correct ? points : 0,
+    attemptsLeft: 0,
+    locked: !correct,
+    delta,
+    position: resolved.position,
+    jump: resolved.jump,
+    finished,
+  };
+}
+
+export async function getSessionPreview(sessionCode: string): Promise<{
+  mode: GameMode;
+  status: string;
+} | null> {
+  const db = load();
+  const session = findSession(db, sessionCode);
+  if (!session) return null;
+  return { mode: session.game_mode, status: session.status };
+}
+
 export async function reportFocusEvent(input: {
   sessionCode: string;
   teamId: string;
@@ -599,6 +828,7 @@ export async function deleteQuestionGroup(groupId: string): Promise<void> {
   db.questions = db.questions.filter((q) => q.group_id !== group.id);
   db.slots = db.slots.filter((s) => !questionIds.has(s.question_id));
   db.answers = db.answers.filter((a) => !questionIds.has(a.question_id));
+  db.moves = db.moves.filter((move) => !questionIds.has(move.question_id));
   save(db);
 }
 
@@ -612,6 +842,7 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   }
   db.questions = db.questions.filter((q) => q.id !== question.id);
   db.answers = db.answers.filter((a) => a.question_id !== question.id);
+  db.moves = db.moves.filter((move) => move.question_id !== question.id);
   save(db);
 }
 
@@ -632,6 +863,7 @@ export async function resetSession(sessionCode: string): Promise<void> {
   const session = findSession(db, sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
   db.answers = db.answers.filter((a) => a.session_id !== session.id);
+  db.moves = db.moves.filter((move) => move.session_id !== session.id);
   db.logs = db.logs.filter((l) => l.session_id !== session.id);
   db.teams = db.teams.filter((t) => t.session_id !== session.id);
   session.status = "LOBBY";
@@ -667,6 +899,7 @@ export async function deleteSession(sessionCode: string): Promise<void> {
   db.teams = db.teams.filter((t) => t.session_id !== session.id);
   db.slots = db.slots.filter((s) => s.session_id !== session.id);
   db.answers = db.answers.filter((a) => a.session_id !== session.id);
+  db.moves = db.moves.filter((move) => move.session_id !== session.id);
   db.logs = db.logs.filter((l) => l.session_id !== session.id);
   save(db);
 }

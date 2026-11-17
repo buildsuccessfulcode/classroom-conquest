@@ -9,11 +9,13 @@ import { FlameIcon, SparkleIcon } from "./icons";
 interface AnswerFeedbackProps {
   variant: "correct" | "wrong";
   xp?: number;
+  unit?: string;
   streak?: number;
   badge?: EarnedBadge | null;
   levelUp?: boolean;
   level?: number;
   message?: string;
+  detail?: string;
   onDismiss?: () => void;
 }
 
@@ -64,11 +66,13 @@ const CONFETTI: ConfettiPiece[] = [
 export default function AnswerFeedback({
   variant,
   xp = 0,
+  unit = "XP",
   streak = 0,
   badge = null,
   levelUp = false,
   level,
   message,
+  detail,
   onDismiss,
 }: AnswerFeedbackProps) {
   const correct = variant === "correct";
@@ -143,13 +147,13 @@ export default function AnswerFeedback({
         {correct ? (
           <>
             <p className="cc-display cc-pop text-6xl font-extrabold text-white drop-shadow-lg">
-              +{shown} XP
+              +{shown} {unit}
             </p>
             <p
               className="cc-rise text-sm font-bold text-brand-soft"
               style={{ animationDelay: "0.15s" }}
             >
-              Jawaban benar!
+              {detail || "Jawaban benar!"}
             </p>
 
             {streak >= 2 ? (

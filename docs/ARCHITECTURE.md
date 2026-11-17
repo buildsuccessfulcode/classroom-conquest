@@ -39,6 +39,15 @@
 - Snapshot nomor dibuat di `session_questions` (`ensureSlots`) saat **Mulai Sesi**.
 - Tiap tim menjawab nomor secara **mandiri**; jawaban benar disimpan di `answers`.
 - Peringkat dari total poin; tie-break `lastAnsweredAt` (lebih awal unggul).
+- **Mode Ular Tangga** (`game_mode = 'SNAKES'`) berjalan di samping mode klasik: papan petak
+  dengan ular/tangga, bidak = avatar tim. Langkah mengikuti kesulitan: Mudah 2–4, Sedang
+  5–8, Sulit 9–12 petak; server mengundi saat jawaban benar dan klien menampilkan animasi
+  dua dadu sebelum memperbarui papan. Jawaban salah membuat bidak tetap dan soal hangus
+  (satu baris `moves` per soal per tim). Posisi disimpan di `teams.position`; riwayat di
+  `moves`. Ular/tangga aktif hanya saat bidak berhenti tepat di petaknya. Jumlah soal
+  minimal 60% dari panjang papan dan papan minimal 10 petak. Finis pertama mengakhiri
+  sesi; bila timer habis tanpa finis, petak terjauh menang.
+  Papan diacak deterministik saat sesi dibuat (`board_config`) agar sama di semua perangkat.
 
 ## 3. Dual Mode (Supabase / Demo)
 
@@ -80,6 +89,13 @@ Murid klik nomor
 `correct_answer` **tidak pernah** meninggalkan server. `requestQuestion` mengembalikan objek
 `PublicQuestion` (tanpa kunci jawaban). Jumlah percobaan salah dihitung di RPC dari
 `activity_logs` agar tidak memerlukan tabel khusus.
+
+Mode Ular Tangga memakai jalur tulis terpisah: `submitMove` → RPC `submit_move`. RPC mengunci
+baris tim, memvalidasi jawaban, mengundi langkah sesuai kesulitan, menerapkan ular/tangga (sekali, hanya saat
+maju), menulis `moves`, memperbarui `teams.position`/`finished_at`, dan mengakhiri sesi bila
+finis — semuanya atomik. Trigger `after update on teams` mengirim Broadcast `team.moved` hanya
+saat `position` atau `finished_at` berubah, sehingga mode klasik (yang hanya mengubah `score`)
+tidak terganggu.
 
 ## 5. Struktur Kode
 
@@ -141,11 +157,12 @@ Prinsip: **logika game murni** (`lib/game.ts`) dipisah dari **I/O** (Supabase/de
    penalti poin, jadi `buildLeaderboard` tetap dari `answers`. Opsi/kata diacak di server.
    Rate limit memakai `Map` level modul per-instance (best-effort di serverless).
 9. **Realtime Broadcast hybrid.** Perubahan game dikirim sebagai Broadcast ringan dari trigger
-   database (`realtime.send`) ke topik `game-<session_id>`, bukan `postgres_changes`. Payload
-   berupa delta kecil; `activity_logs` tidak di-broadcast. Rekonsiliasi penuh berkala (15 detik)
-   plus saat tab kembali fokus/`online` menjaga konsistensi.
-10. **RPC atomik.** `request_question` dan `submit_answer` menggabungkan banyak query menjadi satu
-    round-trip; `submit_answer` mengunci baris tim dan memakai `score = score + gained` sehingga
+   database (`realtime.send`) ke topik `game-<session_id>`, bukan `postgres_changes`:
+   `answer.created`, `team.joined`, `team.moved`, `session.updated`, `log.created`. Payload
+   berupa delta kecil; `activity_logs` hanya di-broadcast saat `ERROR`. Rekonsiliasi penuh
+   berkala (15 detik) plus saat tab kembali fokus/`online` menjaga konsistensi.
+10. **RPC atomik.** `request_question`, `submit_answer`, dan `submit_move` menggabungkan banyak
+    query menjadi satu round-trip; `submit_answer`/`submit_move` mengunci baris tim sehingga
     bebas race condition. RPC hanya untuk `service_role`.
 11. **Timer server-authoritative.** `started_at` disimpan server; klien menyinkronkan offset
     waktu sekali (`lib/clock.ts`) dan menghitung sisa waktu dari `serverNow()`, sehingga timer

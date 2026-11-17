@@ -69,6 +69,14 @@ export function CrownIcon(props: IconProps) {
   );
 }
 
+export function FlagIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5 21V4M5 4h11l-1.5 4L16 12H5" />
+    </svg>
+  );
+}
+
 export function TargetIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>

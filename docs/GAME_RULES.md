@@ -76,20 +76,54 @@ Normalisasi jawaban: huruf kecil, rapikan spasi ganda, buang tanda baca tepi.
 - **Akhiri**: `status = ENDED`, `ended_at = now()`. Papan menampilkan pemenang (read-only).
 - **Hapus**: menghapus sesi beserta tim, nomor soal, jawaban, dan log (cascade).
 
-## 8. Parameter yang Mudah Diubah
+## 8. Mode Ular Tangga (opsional)
+
+1. Guru memilih mode **Ular Tangga** saat membuat sesi, beserta preset kesulitan papan
+   (Mudah/Normal/Sulit) dan ukuran papan (Otomatis/30/50/100 petak). Jumlah soal minimal
+   **60% dari panjang papan** (contoh: papan 30 petak butuh minimal 18 soal). Ukuran otomatis
+   mengikuti aturan tersebut; pilihan manual yang terlalu panjang dikoreksi. Bila soal
+   kurang dari 6 (syarat papan minimum 10 petak), sesi Ular Tangga ditolak dan guru diminta
+   menambah soal atau memakai mode Klasik.
+2. Saat join, siswa memilih **avatar SVG** (hewan). Warna tim tetap dipakai sebagai identitas.
+3. Setiap tim bergerak **bersamaan** dan bebas memilih nomor soal. Satu soal hanya bisa
+   dipakai **sekali per tim**.
+4. **Langkah** mengikuti tingkat kesulitan soal: **Mudah 2–4**, **Sedang 5–8**, **Sulit
+   9–12 petak**. Saat jawaban benar, server mengundi angka pada rentang tersebut, lalu UI
+   menampilkan animasi dua dadu yang berputar dan berhenti pada hasilnya. Bidak baru bergerak
+   setelah animasi selesai.
+5. Jawaban **benar**: bidak maju sebanyak langkah. Jika berhenti **tepat** di kaki tangga,
+   bidak naik; jika berhenti **tepat** di kepala ular, bidak turun. Efek tidak berantai dan
+   hanya berlaku saat maju.
+6. Jawaban **salah**: bidak **tetap di tempat**, soal hangus, dan tim harus memilih soal lain.
+7. Bidak yang mencapai atau melewati petak finis langsung **menang** dan sesi berakhir.
+8. Bila timer habis sebelum ada yang finis, juara ditentukan oleh posisi terjauh; jika sama,
+   tim yang lebih dulu mencapai posisi tersebut (atau nama tim) diunggulkan.
+9. Guru dapat memantau papan, posisi tim, dan log aktivitas secara realtime di dashboard,
+   `/display`, dan `/play`.
+10. **Reset** menghapus `moves`, mengembalikan semua posisi ke 0, dan mengeluarkan peserta
+    seperti mode klasik.
+
+## 9. Parameter yang Mudah Diubah
 
 Semua di `lib/game.ts`:
 
 - `pointsFor(difficulty)` — bobot poin.
 - `isAnswerCorrect()` — normalisasi jawaban.
 - `buildLeaderboard()` — tie-break.
-- `MAX_ATTEMPTS_PER_SLOT` — batas percobaan salah per nomor per tim.
+- `MAX_ATTEMPTS_PER_SLOT` — batas percobaan salah per nomor per tim (mode klasik).
+- `SNAKES_STEP_RANGES` — rentang langkah per kesulitan (Mudah 2–4, Sedang 5–8, Sulit 9–12).
+- `stepsForDifficulty()` — mengundi langkah sesuai kesulitan.
+- `MIN_QUESTIONS_RATIO` — rasio minimal jumlah soal terhadap panjang papan (0.6).
+- `MIN_BOARD_GOAL` — panjang papan minimum (10 petak).
+- `goalFromQuestionCount()` / `minQuestionsForBoard()` — ukuran papan dan syarat soal.
+- `BOARD_TILE_OPTIONS` — pilihan ukuran papan Ular Tangga (30/50/100).
+- `buildBoardConfig()` — generasi ular/tangga.
 - `RAPID_FIRE_INTERVAL_MS` — ambang deteksi jawaban terlalu cepat.
 - `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS` — batas laju permintaan per tim.
 
 Snapshot soal ada di `ensureSlots()` (`app/actions.ts` dan `lib/demo/engine.ts`).
 
-## 9. Anti-Kecurangan
+## 10. Anti-Kecurangan
 
 - **Batas percobaan + kunci** per nomor per tim (lihat bagian 3).
 - **Acak opsi & kata** di server agar jawaban tidak mudah dibagikan antar tim.
@@ -108,7 +142,7 @@ Snapshot soal ada di `ensureSlots()` (`app/actions.ts` dan `lib/demo/engine.ts`)
   dapat mendeteksi perangkat kedua** (mis. HP untuk bertanya ke AI). Untuk itu diperlukan
   pengawasan kelas, mode kiosk perangkat, atau filter jaringan.
 
-## 10. Contoh Perhitungan
+## 11. Contoh Perhitungan
 
 | Aksi | Poin | Total |
 | :--- | :--- | :--- |

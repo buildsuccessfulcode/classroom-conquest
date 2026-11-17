@@ -6,8 +6,10 @@ import { useCallback, useEffect, useState } from "react";
 import { logoutTeacher } from "@/app/actions";
 import ActivityLog from "@/components/ActivityLog";
 import AiSettingsPanel from "@/components/AiSettingsPanel";
+import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
 import Leaderboard from "@/components/Leaderboard";
+import SnakesBoard from "@/components/SnakesBoard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
 import QuestionBankImporter, {
@@ -39,7 +41,13 @@ import {
   startSession,
 } from "@/lib/backend";
 import { formatDateTime } from "@/lib/format";
-import type { QuestionGroupSummary, Session } from "@/lib/types";
+import { goalFromQuestionCount, minQuestionsForBoard } from "@/lib/game";
+import type {
+  BoardPreset,
+  GameMode,
+  QuestionGroupSummary,
+  Session,
+} from "@/lib/types";
 
 const TEACHER_CODE_KEY = "classroom-conquest:teacher:code";
 const TEACHER_TAB_KEY = "classroom-conquest:teacher:tab";
@@ -78,7 +86,11 @@ export default function TeacherDashboard() {
     writeStoredValue(TEACHER_TAB_KEY, next);
   }, []);
   const [duration, setDuration] = useState("30");
+  const [mode, setMode] = useState<GameMode>("CLASSIC");
+  const [boardPreset, setBoardPreset] = useState<BoardPreset>("NORMAL");
+  const [boardGoal, setBoardGoal] = useState("auto");
   const [groups, setGroups] = useState<QuestionGroupSummary[]>([]);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [groupId, setGroupId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -86,6 +98,9 @@ export default function TeacherDashboard() {
   const [importSeed, setImportSeed] = useState<ImporterSeed | null>(null);
   const [settingsVersion, setSettingsVersion] = useState(0);
   const [bankResetToken, setBankResetToken] = useState(0);
+  const selectedGroup = groups.find((group) => group.id === groupId);
+  const selectedQuestionCount = selectedGroup?.question_count ?? 0;
+  const maxBoardForGroup = goalFromQuestionCount(selectedQuestionCount);
 
   const { state, loading, error: stateError, reload } = useGameState(selectedCode);
 
@@ -102,6 +117,8 @@ export default function TeacherDashboard() {
       setGroups(await listQuestionGroups());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat group soal");
+    } finally {
+      setGroupsLoaded(true);
     }
   }, []);
 
@@ -116,6 +133,8 @@ export default function TeacherDashboard() {
         setGroups(await listQuestionGroups());
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal memuat group soal");
+      } finally {
+        setGroupsLoaded(true);
       }
     })();
   }, []);
@@ -139,6 +158,12 @@ export default function TeacherDashboard() {
       const { code } = await createSession({
         groupId,
         durationMinutes: duration.trim() ? Number(duration) : 30,
+        mode,
+        boardPreset: mode === "SNAKES" ? boardPreset : undefined,
+        boardGoal:
+          mode === "SNAKES" && boardGoal !== "auto"
+            ? Number(boardGoal)
+            : undefined,
       });
       setSelectedCode(code);
       setMessage(`Sesi ${code} berhasil dibuat.`);
@@ -289,6 +314,67 @@ export default function TeacherDashboard() {
                     ))}
                   </select>
                 </label>
+                <div className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
+                  Mode Permainan
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        ["CLASSIC", "Klasik", "Kumpulkan poin"],
+                        ["SNAKES", "Ular Tangga", "Balapan finis"],
+                      ] as const
+                    ).map(([value, label, hint]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setMode(value)}
+                        className={[
+                          "flex flex-col items-start gap-0.5 rounded-2xl border-2 px-3 py-2 text-left transition",
+                          mode === value
+                            ? "border-ocean bg-ocean-soft"
+                            : "border-cloud bg-white hover:border-ocean/60",
+                        ].join(" ")}
+                      >
+                        <span className="text-sm font-extrabold text-ink">
+                          {label}
+                        </span>
+                        <span className="text-[11px] font-semibold text-ink-soft">
+                          {hint}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {mode === "SNAKES" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
+                      Kesulitan Papan
+                      <select
+                        value={boardPreset}
+                        onChange={(event) =>
+                          setBoardPreset(event.target.value as BoardPreset)
+                        }
+                        className="w-full rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                      >
+                        <option value="MUDAH">Mudah</option>
+                        <option value="NORMAL">Normal</option>
+                        <option value="SULIT">Sulit</option>
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
+                      Ukuran Papan
+                      <select
+                        value={boardGoal}
+                        onChange={(event) => setBoardGoal(event.target.value)}
+                        className="w-full rounded-2xl border-2 border-cloud bg-snow p-3 font-bold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                      >
+                        <option value="auto">Otomatis</option>
+                        <option value="30">30 petak</option>
+                        <option value="50">50 petak</option>
+                        <option value="100">100 petak</option>
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
                 <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
                   Durasi (menit)
                   <input
@@ -301,17 +387,32 @@ export default function TeacherDashboard() {
                   />
                 </label>
                 <p className="text-xs font-semibold text-ink-soft">
-                  Nomor soal mengikuti seluruh soal dalam group, dibuat otomatis
-                  saat sesi dibuat.
+                  {mode === "SNAKES"
+                    ? "Langkah: soal Mudah 2-4, Sedang 5-8, Sulit 9-12 petak. Jumlah soal minimal 60% dari panjang papan (contoh: papan 30 butuh minimal 18 soal). Papan otomatis dan pilihan manual yang terlalu panjang akan dikoreksi."
+                    : "Nomor soal mengikuti seluruh soal dalam group, dibuat otomatis saat sesi dibuat."}
                 </p>
-                {groups.length === 0 ? (
+                {mode === "SNAKES" && groupId ? (
+                  selectedQuestionCount < minQuestionsForBoard() ? (
+                    <p className="rounded-2xl bg-cherry-soft px-3 py-2 text-xs font-bold text-cherry-dark">
+                      Group ini punya {selectedQuestionCount} soal. Mode Ular
+                      Tangga butuh minimal {minQuestionsForBoard()} soal.
+                    </p>
+                  ) : (
+                    <p className="rounded-2xl bg-grape-soft px-3 py-2 text-xs font-bold text-grape-dark">
+                      Dengan {selectedQuestionCount} soal, papan maksimal{" "}
+                      {maxBoardForGroup} petak (jumlah soal = 60% bidang).
+                    </p>
+                  )
+                ) : null}
+                {groupsLoaded && groups.length === 0 ? (
                   <p className="rounded-2xl bg-sun-soft px-3 py-2 text-xs font-bold text-sun-dark">
                     Belum ada group soal. Impor soal di tab Bank Soal.
                   </p>
                 ) : null}
                 <button
                   type="submit"
-                  disabled={busy || groups.length === 0}
+                  disabled={busy || !groupsLoaded || groups.length === 0}
+                  suppressHydrationWarning
                   className="cc-btn border-brand-dark bg-brand p-3.5 text-white"
                 >
                   Buat Sesi
@@ -347,6 +448,9 @@ export default function TeacherDashboard() {
                         <span className="min-w-0 flex-1 truncate font-semibold text-ink-soft">
                           {session.subject_name}
                         </span>
+                        <span className="shrink-0 rounded-full bg-snow px-2 py-0.5 text-[10px] font-extrabold text-ink-soft">
+                          {session.game_mode === "SNAKES" ? "Ular" : "Klasik"}
+                        </span>
                         <span className="shrink-0 text-xs font-bold text-ink-soft">
                           {formatDateTime(session.created_at)}
                         </span>
@@ -379,6 +483,13 @@ export default function TeacherDashboard() {
                       </p>
                       <p className="cc-display font-mono text-4xl font-extrabold tracking-[0.2em] text-ocean-dark">
                         {state.session.session_code}
+                      </p>
+                      <p className="text-xs font-bold text-ink-soft">
+                        {state.session.game_mode === "SNAKES"
+                          ? `Mode Ular Tangga · ${
+                              state.session.board_config?.goal ?? "-"
+                            } petak`
+                          : "Mode Klasik"}
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
@@ -437,10 +548,52 @@ export default function TeacherDashboard() {
                     </button>
                   </div>
 
-                  {state.slots.length === 0 ? (
+                  {state.session.game_mode === "SNAKES" ? (
+                    state.session.board_config ? (
+                      <div className="grid min-w-0 gap-4 md:grid-cols-[1.2fr_1fr]">
+                        <div className="min-w-0">
+                          <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
+                            Papan Ular Tangga (
+                            {state.session.board_config.goal} petak)
+                          </h3>
+                          <SnakesBoard
+                            config={state.session.board_config}
+                            teams={state.teams}
+                          />
+                          <p className="mt-2 text-xs font-semibold text-ink-soft">
+                            Garis hijau = tangga naik, garis merah = ular turun.
+                            Efek hanya aktif bila bidak berhenti tepat di
+                            petaknya.
+                          </p>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-4">
+                          <div>
+                            <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
+                              Posisi Tim
+                            </h3>
+                            <BoardStandings
+                              teams={state.teams}
+                              config={state.session.board_config}
+                              moves={state.moves}
+                            />
+                          </div>
+                          <div>
+                            <h3 className="cc-display mb-2 text-sm font-extrabold uppercase tracking-wide text-ink-soft">
+                              Aktivitas
+                            </h3>
+                            <ActivityLog logs={state.logs} />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
+                        Papan ular tangga belum tersedia.
+                      </p>
+                    )
+                  ) : state.slots.length === 0 ? (
                     <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
-                      Nomor soal akan dibuat otomatis saat Anda menekan
-                      &ldquo;Mulai&rdquo;.
+                      Sesi ini belum memiliki nomor soal. Buat sesi baru dari
+                      group yang sudah berisi soal.
                     </p>
                   ) : (
                     <div className="grid min-w-0 gap-4 md:grid-cols-[1.2fr_1fr]">

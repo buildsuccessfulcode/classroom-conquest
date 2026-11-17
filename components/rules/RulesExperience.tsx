@@ -149,8 +149,10 @@ const RULES: Rule[] = [
             menekan Mulai.
           </>,
           <>
-            Guru menekan <Hi>Mulai</Hi>. Sistem menyusun snapshot bank soal group
+            Saat sesi dibuat, sistem langsung menyusun snapshot bank soal group
             menjadi nomor <Hi>1..N</Hi> (N = jumlah seluruh soal group saat itu).
+            Guru menekan <Hi>Mulai</Hi> untuk membuka permainan dan menjalankan
+            timer.
           </>,
         ]}
       />
@@ -167,8 +169,9 @@ const RULES: Rule[] = [
       <BulletList
         items={[
           <>
-            Papan menampilkan angka <Hi>1 sampai N</Hi>; tiap angka mewakili satu
-            soal.
+            Di Mode Klasik, papan menampilkan angka <Hi>1 sampai N</Hi>; tiap
+            angka mewakili satu soal. Mode Ular Tangga memakai papan petak; lihat
+            bab <Hi>Mode Ular Tangga</Hi>.
           </>,
           <>Semua tim melihat nomor yang sama.</>,
           <>
@@ -193,7 +196,7 @@ const RULES: Rule[] = [
     id: "alur",
     index: 3,
     title: "Alur Menjawab",
-    summary: "Pilih nomor bebas; salah tanpa penalti, maksimal 2 percobaan.",
+    summary: "Pilih nomor bebas; salah tanpa penalti. Klasik 2 percobaan, Ular Tangga sekali pakai.",
     tone: "brand",
     icon: "path",
     detail: (
@@ -208,18 +211,24 @@ const RULES: Rule[] = [
             diacak di server setiap kali soal diminta, jadi tidak sama antar tim.
           </>,
           <>
-            Jika <Hi>benar</Hi>: tercatat sekali per nomor per tim, poin
-            ditambahkan, dan nomor tetap terbuka untuk tim lain (bukan rebutan).
-            Kunci jawaban hanya ditampilkan ke tim yang sudah menjawab benar.
+            Jika <Hi>benar</Hi>: tercatat sekali per nomor per tim, poin (Klasik)
+            atau langkah bidak (Ular Tangga) ditambahkan, dan nomor tetap terbuka
+            untuk tim lain (bukan rebutan). Kunci jawaban hanya ditampilkan ke tim
+            yang sudah menjawab benar.
           </>,
           <>
-            Jika <Hi>salah</Hi>: tidak ada penalti dan nomor tetap bisa dicoba
-            lagi. Log mencatat percobaan gagal beserta nomornya.
+            Jika <Hi>salah</Hi>: tidak ada penalti. Di Mode Klasik nomor masih
+            bisa dicoba lagi; di Mode Ular Tangga soal langsung hangus untuk tim
+            itu. Log mencatat percobaan gagal beserta nomornya.
           </>,
           <>
-            Tiap nomor maksimal <Hi>2 kali percobaan</Hi> per tim. Setelah batas
-            tercapai, nomor terkunci untuk tim tersebut dan permintaan soal serta
-            jawaban ditolak di server.
+            Di <Hi>Mode Klasik</Hi>, tiap nomor maksimal <Hi>2 kali percobaan</Hi>{" "}
+            per tim. Setelah batas tercapai, nomor terkunci untuk tim tersebut dan
+            permintaan soal serta jawaban ditolak di server.
+          </>,
+          <>
+            Di <Hi>Mode Ular Tangga</Hi>, tiap nomor hanya bisa dipakai sekali.
+            Jawaban salah membuat soal hangus dan bidak tetap di petak.
           </>,
           <>Tim boleh melanjutkan ke nomor lain kapan saja.</>,
         ]}
@@ -227,8 +236,52 @@ const RULES: Rule[] = [
     ),
   },
   {
-    id: "tipe",
+    id: "ular-tangga",
     index: 4,
+    title: "Mode Ular Tangga",
+    summary: "Balapan finis; langkah sesuai kesulitan soal dan avatar tiap tim.",
+    tone: "brand",
+    icon: "grid",
+    detail: (
+      <div className="flex flex-col gap-3">
+        <p className="text-sm font-semibold leading-relaxed text-ink-soft">
+          Mode ini berjalan berdampingan dengan Mode Klasik. Pilih mode saat
+          membuat sesi di <Hi>/teacher</Hi>. Saat bergabung, tiap tim memilih
+          avatar SVG sebagai bidak.
+        </p>
+        <StepList
+          items={[
+            <>
+              Jawaban benar menggerakkan bidak sesuai kesulitan soal:{" "}
+              <Hi>Mudah 2–4</Hi>, <Hi>Sedang 5–8</Hi>, <Hi>Sulit 9–12</Hi> petak.
+              Server mengundi langkah dan menampilkan animasi dua dadu.
+            </>,
+            <>
+              Ular dan tangga aktif hanya bila bidak <Hi>berhenti tepat</Hi> di
+              petaknya. Efeknya bisa memindahkan bidak maju atau mundur.
+            </>,
+            <>
+              Jawaban salah membuat bidak tetap dan soal langsung hangus untuk
+              tim tersebut.
+            </>,
+            <>
+              Tim pertama yang mencapai petak finis memenangkan sesi. Jika waktu
+              habis tanpa finis, tim dengan petak terjauh menang (tie-break: lebih
+              dulu mencapai petak itu, lalu nama tim).
+            </>,
+            <>
+              Jumlah soal minimal <Hi>60%</Hi> dari panjang papan. Papan 30 petak
+              butuh minimal 18 soal; pilihan papan yang terlalu panjang otomatis
+              dibatasi.
+            </>,
+          ]}
+        />
+      </div>
+    ),
+  },
+  {
+    id: "tipe",
+    index: 5,
     title: "Tipe Soal",
     summary: "Pilihan ganda, isian singkat/kode, atau susun kata.",
     tone: "mango",
@@ -269,9 +322,9 @@ const RULES: Rule[] = [
   },
   {
     id: "penilaian",
-    index: 5,
+    index: 6,
     title: "Penilaian & Peringkat",
-    summary: "Poin terbanyak juara; seri ditentukan waktu jawaban.",
+    summary: "Mode Klasik: poin terbanyak juara, seri ditentukan waktu jawaban.",
     tone: "sun",
     icon: "podium",
     detail: (
@@ -300,12 +353,16 @@ const RULES: Rule[] = [
             <>Jika masih sama, nama tim urut A–Z.</>,
           ]}
         />
+        <p className="rounded-2xl bg-ocean-soft px-3 py-2 text-xs font-bold text-ocean-dark">
+          Mode Ular Tangga tidak memakai peringkat poin; juara ditentukan oleh
+          finis atau petak terjauh. Lihat bab Mode Ular Tangga.
+        </p>
       </div>
     ),
   },
   {
     id: "timer",
-    index: 6,
+    index: 7,
     title: "Timer",
     summary: "Durasi 5–120 menit, dihitung sejak guru menekan Mulai.",
     tone: "cherry",
@@ -329,7 +386,7 @@ const RULES: Rule[] = [
   },
   {
     id: "reset",
-    index: 7,
+    index: 8,
     title: "Reset & Akhir Sesi",
     summary: "Reset mengosongkan peserta; Akhiri menampilkan juara.",
     tone: "ocean",
@@ -338,18 +395,18 @@ const RULES: Rule[] = [
       <BulletList
         items={[
           <>
-            <Hi>Reset</Hi> menghapus semua jawaban, log, dan tim (peserta
-            dikeluarkan), status kembali ke Lobby, lalu timer berhenti. Susunan
-            nomor soal tetap sama. Guru harus menekan Mulai lagi dan murid
-            bergabung ulang.
+            <Hi>Reset</Hi> menghapus semua jawaban, riwayat langkah, log, dan tim
+            (peserta dikeluarkan), status kembali ke Lobby, lalu timer berhenti.
+            Susunan nomor soal tetap sama. Guru harus menekan Mulai lagi dan
+            murid bergabung ulang.
           </>,
           <>
             <Hi>Akhiri</Hi> menghentikan permainan dan menampilkan pemenang;
             papan menjadi read-only.
           </>,
           <>
-            <Hi>Hapus</Hi> menghapus sesi beserta tim, nomor soal, jawaban, dan
-            log.
+            <Hi>Hapus</Hi> menghapus sesi beserta tim, nomor soal, jawaban,
+            riwayat langkah, dan log.
           </>,
         ]}
       />
@@ -357,7 +414,7 @@ const RULES: Rule[] = [
   },
   {
     id: "anti",
-    index: 8,
+    index: 9,
     title: "Anti-Kecurangan",
     summary: "Batas percobaan, acak soal, dan peringatan untuk guru.",
     tone: "grape",
@@ -366,8 +423,9 @@ const RULES: Rule[] = [
       <BulletList
         items={[
           <>
-            Tiap nomor dibatasi 2 percobaan lalu terkunci, sehingga menebak
-            berulang tidak efektif.
+            Di Mode Klasik, tiap nomor dibatasi 2 percobaan lalu terkunci. Di
+            Mode Ular Tangga, tiap nomor hanya sekali pakai per tim, sehingga
+            menebak berulang tidak efektif.
           </>,
           <>
             Urutan opsi dan kata diacak per tim agar jawaban sulit disalin antar
@@ -416,7 +474,7 @@ const TIPS = [
   {
     icon: LightbulbIcon,
     tone: "bg-sun-soft text-sun-dark",
-    text: "Baca soal sampai selesai. Salah tidak mengurangi poin, tapi percobaanmu terbatas.",
+    text: "Baca soal sampai selesai. Salah tidak mengurangi poin, tetapi kesempatan menjawab terbatas.",
   },
   {
     icon: TargetIcon,
@@ -521,7 +579,7 @@ function Examples() {
     <div className="grid min-w-0 gap-4 md:grid-cols-2">
       <div className="cc-card min-w-0 p-5 md:col-span-2">
         <h3 className="cc-display text-lg font-extrabold text-ink">
-          Contoh perhitungan poin
+          Contoh perhitungan poin (Mode Klasik)
         </h3>
         <ol className="mt-4 flex flex-col gap-3">
           {SCORE_TRAIL.map((step, index) => {
@@ -561,7 +619,7 @@ function Examples() {
 
       <div className="cc-card min-w-0 p-5">
         <h3 className="cc-display text-lg font-extrabold text-ink">
-          2 percobaan per nomor
+          2 percobaan per nomor (Mode Klasik)
         </h3>
         <div className="mt-5 flex items-center justify-center gap-3">
           {[1, 2].map((attempt) => (
@@ -584,13 +642,14 @@ function Examples() {
           </div>
         </div>
         <p className="mt-4 text-xs font-semibold text-ink-soft">
-          Setelah dua percobaan salah, nomor terkunci untuk tim itu.
+          Setelah dua percobaan salah, nomor terkunci untuk tim itu. Di Mode
+          Ular Tangga, satu jawaban salah langsung menghanguskan soal.
         </p>
       </div>
 
       <div className="cc-card min-w-0 p-5">
         <h3 className="cc-display text-lg font-extrabold text-ink">
-          Timer & penentu seri
+          Timer & penentu juara
         </h3>
         <div className="mt-4 flex items-center gap-4">
           <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-cherry bg-cherry-soft">
@@ -613,13 +672,19 @@ function Examples() {
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sun text-xs font-extrabold text-white">
               1
             </span>
-            Poin terbanyak menang
+            Klasik: poin terbanyak menang
           </div>
           <div className="flex items-center gap-2 rounded-2xl bg-snow px-3 py-2 text-sm font-bold text-ink">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ocean text-xs font-extrabold text-white">
               2
             </span>
-            Seri? Jawaban benar terakhir lebih awal
+            Klasik seri? Jawaban benar terakhir lebih awal
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl bg-snow px-3 py-2 text-sm font-bold text-ink">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-xs font-extrabold text-white">
+              3
+            </span>
+            Ular Tangga: finis pertama menang, atau petak terjauh saat waktu habis
           </div>
         </div>
       </div>

@@ -62,6 +62,16 @@ export function useGameState(sessionCode: string | null) {
           }
           return { ...prev, teams: [...prev.teams, event.team] };
         });
+      } else if (event.type === "team.moved") {
+        setState((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            teams: prev.teams.map((team) =>
+              team.id === event.team.id ? event.team : team,
+            ),
+          };
+        });
       } else if (event.type === "session.updated") {
         setState((prev) =>
           prev ? { ...prev, session: event.session } : prev,

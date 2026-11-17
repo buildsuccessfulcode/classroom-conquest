@@ -46,6 +46,7 @@ const FEATURES = [
   { icon: FlameIcon, label: "Streak beruntun", tone: "text-mango" },
   { icon: StarIcon, label: "Koleksi badge", tone: "text-sun-dark" },
   { icon: TrophyIcon, label: "Peringkat kelas", tone: "text-ocean" },
+  { icon: TargetIcon, label: "Mode Ular Tangga", tone: "text-brand" },
 ];
 
 export default function Home() {
@@ -79,7 +80,8 @@ export default function Home() {
           </h1>
           <p className="mt-3 max-w-xl text-lg font-semibold text-ink-soft">
             Setiap tim menjawab nomor soal secara mandiri, mengumpulkan XP,
-            menjaga streak, dan berebut puncak papan peringkat kelas.
+            menjaga streak, dan berebut puncak papan peringkat kelas. Guru juga
+            bisa memilih mode Ular Tangga untuk balapan bidak menuju finis.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
@@ -154,11 +156,11 @@ export default function Home() {
         </div>
         <ol className="flex flex-col gap-2 text-sm font-semibold text-ink-soft">
           {[
-            "Guru membuat sesi dan membagikan kode 6 karakter.",
+            "Guru membuat sesi (Klasik atau Ular Tangga) dan membagikan kode 6 karakter.",
             "Proyektor membuka papan dan memasukkan kode sesi.",
             "Setiap kelompok bergabung dari perangkat masing-masing.",
-            "Pilih nomor soal mana saja; jawaban salah tidak mengurangi XP.",
-            "Poin terbanyak jadi juara, dengan waktu jawaban sebagai penentu seri.",
+            "Pilih nomor soal mana saja; jawaban salah tidak mengurangi poin.",
+            "Klasik: poin terbanyak juara. Ular Tangga: tim pertama mencapai finis menang.",
           ].map((step, index) => (
             <li key={step} className="flex items-start gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-extrabold text-brand-dark">

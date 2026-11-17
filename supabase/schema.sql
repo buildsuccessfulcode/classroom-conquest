@@ -22,6 +22,9 @@ create table if not exists public.sessions (
     is_active boolean not null default true,
     status varchar(20) not null default 'LOBBY'
         check (status in ('LOBBY', 'PLAYING', 'ENDED')),
+    game_mode varchar(10) not null default 'CLASSIC'
+        check (game_mode in ('CLASSIC', 'SNAKES')),
+    board_config jsonb,
     duration_minutes int not null default 30,
     started_at timestamptz,
     ended_at timestamptz,
@@ -34,6 +37,9 @@ create table if not exists public.teams (
     session_id uuid not null references public.sessions(id) on delete cascade,
     team_name varchar(50) not null,
     color_code varchar(7) not null,
+    avatar varchar(30),
+    position int not null default 0,
+    finished_at timestamptz,
     score int not null default 0,
     joined_at timestamptz not null default now(),
     created_at timestamptz not null default now(),
@@ -79,6 +85,23 @@ create table if not exists public.answers (
     unique (session_id, team_id, slot_number)
 );
 
+-- 6b. Riwayat langkah mode Ular Tangga (satu baris per soal per tim)
+create table if not exists public.moves (
+    id uuid primary key default gen_random_uuid(),
+    session_id uuid not null references public.sessions(id) on delete cascade,
+    team_id uuid not null references public.teams(id) on delete cascade,
+    slot_number int not null,
+    question_id uuid not null references public.questions(id) on delete cascade,
+    correct boolean not null,
+    points int not null default 0,
+    delta int not null default 0,
+    from_position int not null default 0,
+    to_position int not null default 0,
+    jump int not null default 0,
+    created_at timestamptz not null default now(),
+    unique (session_id, team_id, slot_number)
+);
+
 -- 7. Log aktivitas (panel live log)
 create table if not exists public.activity_logs (
     id uuid primary key default gen_random_uuid(),
@@ -90,6 +113,15 @@ create table if not exists public.activity_logs (
     created_at timestamptz not null default now()
 );
 
+-- Kolom tambahan mode Ular Tangga (aman dijalankan berulang pada DB lama)
+alter table public.sessions
+    add column if not exists game_mode varchar(10) not null default 'CLASSIC'
+    check (game_mode in ('CLASSIC', 'SNAKES'));
+alter table public.sessions add column if not exists board_config jsonb;
+alter table public.teams add column if not exists avatar varchar(30);
+alter table public.teams add column if not exists position int not null default 0;
+alter table public.teams add column if not exists finished_at timestamptz;
+
 -- Index untuk filter realtime dan query umum
 create index if not exists teams_session_idx on public.teams (session_id);
 create index if not exists sessions_group_idx on public.sessions (group_id);
@@ -98,6 +130,8 @@ create index if not exists session_questions_session_idx
     on public.session_questions (session_id);
 create index if not exists answers_session_idx on public.answers (session_id);
 create index if not exists answers_team_idx on public.answers (team_id);
+create index if not exists moves_session_idx on public.moves (session_id);
+create index if not exists moves_team_idx on public.moves (team_id);
 create index if not exists activity_logs_session_idx
     on public.activity_logs (session_id, created_at desc);
 create index if not exists activity_logs_team_slot_idx
@@ -115,6 +149,7 @@ alter table public.teams enable row level security;
 alter table public.questions enable row level security;
 alter table public.session_questions enable row level security;
 alter table public.answers enable row level security;
+alter table public.moves enable row level security;
 alter table public.activity_logs enable row level security;
 
 -- Anon hanya boleh membaca tabel publik. Tidak ada policy untuk questions dan
@@ -133,6 +168,10 @@ create policy "public read session_questions" on public.session_questions
 
 drop policy if exists "public read answers" on public.answers;
 create policy "public read answers" on public.answers
+    for select using (true);
+
+drop policy if exists "public read moves" on public.moves;
+create policy "public read moves" on public.moves
     for select using (true);
 
 drop policy if exists "public read activity_logs" on public.activity_logs;
@@ -212,11 +251,34 @@ begin
                     'session_id', new.session_id,
                     'team_name', new.team_name,
                     'color_code', new.color_code,
+                    'avatar', new.avatar,
+                    'position', new.position,
+                    'finished_at', new.finished_at,
                     'score', new.score,
                     'joined_at', new.joined_at
                 )
             ),
             'team.joined',
+            'game-' || new.session_id::text,
+            false
+        );
+    elsif tg_table_name = 'teams' and tg_op = 'UPDATE' then
+        perform realtime.send(
+            jsonb_build_object(
+                'type', 'team.moved',
+                'team', jsonb_build_object(
+                    'id', new.id,
+                    'session_id', new.session_id,
+                    'team_name', new.team_name,
+                    'color_code', new.color_code,
+                    'avatar', new.avatar,
+                    'position', new.position,
+                    'finished_at', new.finished_at,
+                    'score', new.score,
+                    'joined_at', new.joined_at
+                )
+            ),
+            'team.moved',
             'game-' || new.session_id::text,
             false
         );
@@ -259,6 +321,14 @@ create trigger broadcast_teams
     after insert on public.teams
     for each row execute function public.broadcast_game_change();
 
+drop trigger if exists broadcast_teams_moved on public.teams;
+create trigger broadcast_teams_moved
+    after update on public.teams
+    for each row
+    when (new.position is distinct from old.position
+          or new.finished_at is distinct from old.finished_at)
+    execute function public.broadcast_game_change();
+
 drop trigger if exists broadcast_sessions on public.sessions;
 create trigger broadcast_sessions
     after update on public.sessions
@@ -286,6 +356,7 @@ declare
     v_slot public.session_questions;
     v_question public.questions;
     v_solved boolean;
+    v_used boolean;
     v_wrong int;
 begin
     select * into v_session from public.sessions
@@ -322,10 +393,18 @@ begin
           and team_id = p_team_id
           and message like '%menjawab salah nomor ' || p_slot_number || ' (%';
 
+    select exists(
+        select 1 from public.moves
+        where session_id = v_session.id
+          and team_id = p_team_id
+          and slot_number = p_slot_number
+    ) into v_used;
+
     return jsonb_build_object(
         'session_id', v_session.id,
         'question', to_jsonb(v_question),
         'solved', v_solved,
+        'used', v_used,
         'wrong_attempts', v_wrong
     );
 end $$;
@@ -468,14 +547,202 @@ begin
     );
 end $$;
 
+-- Validasi + pergerakan bidak mode Ular Tangga, atomik per tim.
+create or replace function public.submit_move(
+    p_session_code text,
+    p_team_id uuid,
+    p_slot_number int,
+    p_answer text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_session public.sessions;
+    v_team public.teams;
+    v_slot public.session_questions;
+    v_question public.questions;
+    v_existing uuid;
+    v_correct boolean;
+    v_points int;
+    v_steps int;
+    v_delta int;
+    v_from int;
+    v_goal int;
+    v_raw int;
+    v_to int;
+    v_jump int;
+    v_finished boolean := false;
+    v_link jsonb;
+    v_message text;
+begin
+    select * into v_session from public.sessions
+        where session_code = upper(trim(p_session_code));
+    if v_session.id is null then raise exception 'Sesi tidak ditemukan'; end if;
+    if v_session.game_mode <> 'SNAKES' then
+        raise exception 'Sesi ini bukan mode Ular Tangga';
+    end if;
+    if v_session.status = 'ENDED' then raise exception 'Sesi sudah berakhir'; end if;
+    if v_session.status <> 'PLAYING' then raise exception 'Sesi belum dimulai'; end if;
+    if v_session.started_at is not null
+        and now() > v_session.started_at + (v_session.duration_minutes || ' minutes')::interval
+    then
+        raise exception 'Waktu sesi sudah habis';
+    end if;
+
+    select * into v_team from public.teams
+        where id = p_team_id and session_id = v_session.id
+        for update;
+    if v_team.id is null then raise exception 'Tim tidak terdaftar di sesi ini'; end if;
+    if v_team.finished_at is not null then
+        raise exception 'Tim Anda sudah mencapai finis';
+    end if;
+
+    select * into v_slot from public.session_questions
+        where session_id = v_session.id and slot_number = p_slot_number;
+    if v_slot.id is null then raise exception 'Nomor soal tidak ditemukan'; end if;
+
+    select id into v_existing from public.moves
+        where session_id = v_session.id
+          and team_id = p_team_id
+          and slot_number = p_slot_number;
+    if v_existing is not null then
+        raise exception 'Soal ini sudah dipakai tim Anda';
+    end if;
+
+    select * into v_question from public.questions where id = v_slot.question_id;
+    if v_question.id is null then raise exception 'Soal tidak ditemukan'; end if;
+
+    v_correct := public.normalize_answer(v_question.correct_answer)
+        = public.normalize_answer(p_answer);
+
+    v_points := case
+        when v_question.points > 0 then v_question.points
+        when v_question.difficulty = 'HARD' then 200
+        when v_question.difficulty = 'MEDIUM' then 150
+        else 100
+    end;
+    v_steps := case
+        when v_question.difficulty = 'HARD' then 9 + floor(random() * 4)::int
+        when v_question.difficulty = 'MEDIUM' then 5 + floor(random() * 4)::int
+        else 2 + floor(random() * 3)::int
+    end;
+    v_delta := case when v_correct then v_steps else 0 end;
+
+    v_goal := coalesce((v_session.board_config->>'goal')::int, 50);
+    v_from := coalesce(v_team.position, 0);
+    v_raw := least(v_goal, greatest(0, v_from + v_delta));
+    v_to := v_raw;
+    v_jump := 0;
+
+    if v_correct then
+        if v_raw >= v_goal then
+            v_finished := true;
+            v_to := v_goal;
+        else
+            v_link := null;
+            select value into v_link
+                from jsonb_array_elements(
+                    coalesce(v_session.board_config->'ladders', '[]'::jsonb)
+                )
+                where (value->>'from')::int = v_raw
+                limit 1;
+            if v_link is null then
+                select value into v_link
+                    from jsonb_array_elements(
+                        coalesce(v_session.board_config->'snakes', '[]'::jsonb)
+                    )
+                    where (value->>'from')::int = v_raw
+                    limit 1;
+            end if;
+            if v_link is not null then
+                v_to := (v_link->>'to')::int;
+                v_jump := v_to - v_raw;
+            end if;
+        end if;
+    end if;
+
+    insert into public.moves (
+        session_id, team_id, slot_number, question_id, correct, points,
+        delta, from_position, to_position, jump
+    ) values (
+        v_session.id, p_team_id, p_slot_number, v_question.id, v_correct,
+        v_points, v_delta, v_from, v_to, v_jump
+    );
+
+    if v_correct then
+        update public.teams
+            set position = v_to,
+                finished_at = case
+                    when v_finished then coalesce(finished_at, now())
+                    else finished_at
+                end
+            where id = p_team_id;
+
+        v_message := 'Benar! Maju ' || v_steps || ' petak';
+        if v_finished then
+            v_message := 'Benar! Bidak mencapai finis.';
+        elsif v_jump > 0 then
+            v_message := v_message || '. Naik tangga ke petak ' || v_to;
+        elsif v_jump < 0 then
+            v_message := v_message || '. Kena ular, turun ke petak ' || v_to;
+        else
+            v_message := v_message || '. Bidak di petak ' || v_to;
+        end if;
+    else
+        v_message := 'Jawaban belum tepat. Bidak tetap di petak '
+            || v_from || ', soal hangus.';
+    end if;
+
+    insert into public.activity_logs (session_id, team_id, message, kind)
+    values (
+        v_session.id,
+        p_team_id,
+        'Tim ' || v_team.team_name || ': ' || v_message,
+        case when v_correct then 'CLAIM' else 'INFO' end
+    );
+
+    if v_finished then
+        update public.sessions
+            set status = 'ENDED', is_active = false, ended_at = now()
+            where id = v_session.id and status = 'PLAYING';
+        if found then
+            insert into public.activity_logs (session_id, team_id, message, kind)
+            values (
+                v_session.id,
+                p_team_id,
+                'Tim ' || v_team.team_name
+                    || ' mencapai finis dan memenangkan permainan!',
+                'SYSTEM'
+            );
+        end if;
+    end if;
+
+    return jsonb_build_object(
+        'correct', v_correct,
+        'message', v_message,
+        'gainedPoints', case when v_correct then v_points else 0 end,
+        'attemptsLeft', 0,
+        'locked', not v_correct,
+        'delta', v_delta,
+        'position', v_to,
+        'jump', v_jump,
+        'finished', v_finished
+    );
+end $$;
+
 -- RPC hanya boleh dipanggil service role (server). Cegah brute-force kunci
 -- jawaban lewat PostgREST oleh anon.
 revoke all on function public.request_question(text, uuid, int) from public, anon, authenticated;
 revoke all on function public.submit_answer(text, uuid, int, text) from public, anon, authenticated;
+revoke all on function public.submit_move(text, uuid, int, text) from public, anon, authenticated;
 revoke all on function public.broadcast_game_change() from public, anon, authenticated;
 revoke all on function public.normalize_answer(text) from public, anon, authenticated;
 grant execute on function public.request_question(text, uuid, int) to service_role;
 grant execute on function public.submit_answer(text, uuid, int, text) to service_role;
+grant execute on function public.submit_move(text, uuid, int, text) to service_role;
 
 -- ============================================================
 -- 9. Pengaturan aplikasi (API key Gemini, pilihan model)

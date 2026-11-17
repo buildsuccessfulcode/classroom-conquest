@@ -1,39 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { serverNow } from "@/lib/clock";
 
-type Listener = (now: number) => void;
-
-const listeners = new Set<Listener>();
+const listeners = new Set<() => void>();
 let timer: number | null = null;
+let current: number | null = null;
 
-function start(): void {
-  if (timer !== null || typeof window === "undefined") return;
-  timer = window.setInterval(() => {
-    const now = serverNow();
-    for (const listener of listeners) listener(now);
-  }, 1000);
+function emit(): void {
+  current = serverNow();
+  for (const listener of listeners) listener();
 }
 
-function stop(): void {
-  if (timer === null) return;
-  window.clearInterval(timer);
-  timer = null;
+function subscribe(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  listeners.add(listener);
+  if (current === null) {
+    current = serverNow();
+    listener();
+  }
+  if (timer === null) {
+    timer = window.setInterval(emit, 1000);
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      current = null;
+    }
+  };
 }
 
-export function useServerNow(): number {
-  const [now, setNow] = useState(() => serverNow());
+function getSnapshot(): number {
+  if (current === null) current = serverNow();
+  return current;
+}
 
-  useEffect(() => {
-    const listener: Listener = (value) => setNow(value);
-    listeners.add(listener);
-    start();
-    return () => {
-      listeners.delete(listener);
-      if (listeners.size === 0) stop();
-    };
-  }, []);
-
-  return now;
+export function useServerNow(fallback = 0): number {
+  const getServerSnapshot = useCallback(() => fallback, [fallback]);
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

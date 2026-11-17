@@ -25,6 +25,15 @@ untuk mengumpulkan poin, papan proyektor realtime.
 - Timer sesi tetap ada; jawaban setelah waktu habis ditolak.
 - Join hanya saat sesi `LOBBY`. Reset mengeluarkan peserta (hapus tim, jawaban, log) dan
   mengembalikan status ke `LOBBY`; guru harus menekan **Mulai** lagi.
+- **Mode Ular Tangga** (`sessions.game_mode = 'SNAKES'`) berjalan berdampingan dengan mode
+  klasik. Siswa memilih avatar SVG saat join. Langkah mengikuti kesulitan: Mudah 2–4,
+  Sedang 5–8, Sulit 9–12 petak; server mengundi saat jawaban benar dan UI menampilkan
+  animasi dua dadu sebelum bidak bergerak. Jawaban salah membuat bidak tetap dan soal
+  hangus. Ular/tangga aktif hanya bila bidak berhenti tepat di petaknya. Tim pertama yang
+  mencapai finis memenangkan sesi; bila waktu habis tanpa finis, tim dengan petak terjauh
+  menang (tie-break: lebih dulu mencapai petak itu, lalu nama). Jumlah soal minimal 60%
+  dari panjang papan (papan 30 butuh minimal 18 soal); pilihan guru (30/50/100) dibatasi
+  bila terlalu panjang, dengan papan minimum 10 petak.
 
 ## Stack & Konvensi
 
@@ -44,12 +53,15 @@ app/{play,display}/page.tsx  shell server -> {Play,Display}Client.tsx (client)
 app/teacher/page.tsx   cek cookie (server) -> TeacherDashboard (client)
 app/rules/page.tsx     halaman aturan publik (server, force-static)
 components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, form,
-                       QuestionBankImporter, QuestionGenerator, AiSettingsPanel,
-                       QuestionGroupList, Skeleton, RuntimeOptimizations
+                       SnakesBoard, BoardStandings, SnakesQuestionGrid, DiceRoll,
+                       Avatar, AvatarPicker, QuestionBankImporter, QuestionGenerator,
+                       AiSettingsPanel, QuestionGroupList, Skeleton,
+                       RuntimeOptimizations
 hooks/useGameState.ts  state + realtime Broadcast + delta + rekonsiliasi
 hooks/useServerNow.ts  clock global bersama (offset server)
 hooks/useLocalStorage.ts  useSyncExternalStore untuk localStorage
-lib/game.ts            leaderboard, validasi jawaban, poin, timer
+lib/game.ts            leaderboard, validasi jawaban, poin, timer, logika papan
+lib/avatars.ts         daftar avatar SVG (tanpa emoji)
 lib/clock.ts           offset waktu server (serverNow)
 lib/feedback.ts        suara WebAudio + haptic lokal
 lib/questions.ts       validasi impor bank soal (parseQuestionBank)
@@ -57,7 +69,7 @@ lib/ai/prompt.ts       prompt + response schema Gemini
 lib/ai/gemini.ts       klien REST Gemini (list model, generate, maskApiKey)
 lib/backend.ts         fasad supabase/demo + tipe RealtimeEvent
 lib/supabase/{client,server}.ts  client di-dynamic import
-lib/demo/engine.ts     engine demo (localStorage v3)
+lib/demo/engine.ts     engine demo (localStorage v4, fallback baca v3)
 lib/demo/settings.ts   pengaturan AI demo (localStorage)
 supabase/schema.sql    skema + RLS + Broadcast + RPC + app_settings
 supabase/migration_optimizations.sql  migrasi untuk DB yang sudah ada
@@ -68,9 +80,12 @@ plans/                 rencana
 ## Tabel Penting
 
 - `question_groups`: group bank soal (`name` unik, `subject`).
-- `sessions` (tanpa grid_size), `teams`, `questions` (ber-`group_id`).
+- `sessions` (tanpa grid_size) dengan `game_mode` (`CLASSIC`/`SNAKES`) + `board_config`;
+  `teams` dengan `avatar`, `position`, `finished_at`; `questions` (ber-`group_id`).
 - `session_questions`: snapshot nomor soal per sesi (`slot_number`, `question_id`).
-- `answers`: hanya jawaban **benar** (`team_id`, `slot_number`, `points`, `answered_at`).
+- `answers`: hanya jawaban **benar** mode klasik (`team_id`, `slot_number`, `points`, `answered_at`).
+- `moves`: riwayat langkah mode Ular Tangga (satu baris per soal per tim); sumber kebenaran
+  posisi selain `teams.position`.
 - `activity_logs`.
 - `app_settings`: pengaturan server (`gemini_api_key`, `gemini_model`); RLS tanpa policy → hanya
   service role. Key tidak pernah dikirim ke client.
@@ -90,12 +105,13 @@ npm run analyze        # bundle analyzer
 1. `questions.correct_answer` TIDAK BOLEH sampai ke client saat bermain. Gunakan
    `PublicQuestion`. Pengecualian mode review: `SlotQuestion.correctAnswer` hanya diisi bila
    tim itu sudah menjawab benar nomor tersebut atau nomornya sudah terkunci (habis percobaan).
-2. Anon hanya `SELECT`; semua tulis lewat service role di server. RPC `request_question` dan
-   `submit_answer` di-`revoke` dari anon (hanya `service_role`).
+2. Anon hanya `SELECT`; semua tulis lewat service role di server. RPC `request_question`,
+   `submit_answer`, dan `submit_move` di-`revoke` dari anon (hanya `service_role`).
 3. Realtime memakai **Broadcast** dari trigger DB (`answer.created`, `team.joined`,
-   `session.updated`, `log.created`) ke topik `game-<session_id>`; `activity_logs` hanya
-   di-broadcast bila `kind = 'ERROR'` (mis. tim keluar) agar panel proyektor bisa memberi
-   peringatan seketika.
+   `team.moved`, `session.updated`, `log.created`) ke topik `game-<session_id>`; `team.moved`
+   hanya dikirim saat `position`/`finished_at` berubah (mode klasik tidak terganggu);
+   `activity_logs` hanya di-broadcast bila `kind = 'ERROR'` (mis. tim keluar) agar panel
+   proyektor bisa memberi peringatan seketika.
 4. Snapshot nomor soal dibuat saat `createSession`; start/reset tidak mengubah snapshot.
 5. Hapus group/soal ditolak bila masih dipakai sesi.
 6. Perubahan skema harus disinkronkan ke `supabase/schema.sql`,

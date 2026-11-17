@@ -12,6 +12,8 @@ import type {
   AiSettings,
   Answer,
   AnswerResult,
+  BoardPreset,
+  GameMode,
   GameState,
   GeneratedQuestionBank,
   GenerateQuestionsInput,
@@ -30,6 +32,7 @@ export type BackendMode = "supabase" | "demo";
 export type RealtimeEvent =
   | { type: "answer.created"; answer: Answer }
   | { type: "team.joined"; team: Team }
+  | { type: "team.moved"; team: Team }
   | { type: "session.updated"; session: Session }
   | { type: "log.created"; log: ActivityLog }
   | { type: "refresh" };
@@ -41,6 +44,9 @@ export function backendMode(): BackendMode {
 export async function createSession(input: {
   groupId: string;
   durationMinutes?: number;
+  mode?: GameMode;
+  boardPreset?: BoardPreset;
+  boardGoal?: number;
 }): Promise<{ code: string }> {
   if (isSupabaseConfigured()) return actions.createSession(input);
   return demo.createSession(input);
@@ -66,9 +72,18 @@ export async function listSessions(): Promise<Session[]> {
 export async function joinTeam(input: {
   sessionCode: string;
   teamName: string;
+  avatar?: string | null;
 }): Promise<JoinTeamResult> {
   if (isSupabaseConfigured()) return actions.joinTeam(input);
   return demo.joinTeam(input);
+}
+
+export async function getSessionPreview(sessionCode: string): Promise<{
+  mode: GameMode;
+  status: string;
+} | null> {
+  if (isSupabaseConfigured()) return actions.getSessionPreview(sessionCode);
+  return demo.getSessionPreview(sessionCode);
 }
 
 export async function fetchGameState(
@@ -95,6 +110,16 @@ export async function submitAnswer(input: {
 }): Promise<AnswerResult> {
   if (isSupabaseConfigured()) return actions.submitAnswer(input);
   return demo.submitAnswer(input);
+}
+
+export async function submitMove(input: {
+  sessionCode: string;
+  teamId: string;
+  slotNumber: number;
+  answer: string;
+}): Promise<AnswerResult> {
+  if (isSupabaseConfigured()) return actions.submitMove(input);
+  return demo.submitMove(input);
 }
 
 export async function reportFocusEvent(input: {
@@ -213,6 +238,10 @@ export async function subscribe(
     .on("broadcast", { event: "team.joined" }, ({ payload }) => {
       const team = (payload as { team?: Team } | null)?.team;
       onEvent(team ? { type: "team.joined", team } : { type: "refresh" });
+    })
+    .on("broadcast", { event: "team.moved" }, ({ payload }) => {
+      const team = (payload as { team?: Team } | null)?.team;
+      onEvent(team ? { type: "team.moved", team } : { type: "refresh" });
     })
     .on("broadcast", { event: "session.updated" }, ({ payload }) => {
       const session = (payload as { session?: Session } | null)?.session;

@@ -6,7 +6,10 @@ import type { Session } from "@/lib/types";
 import { FlameIcon } from "./icons";
 
 export default function TimeWarningBanner({ session }: { session: Session }) {
-  const now = useServerNow();
+  const fallbackNow = session.started_at
+    ? new Date(session.started_at).getTime()
+    : 0;
+  const now = useServerNow(fallbackNow);
   const seconds = remainingSeconds(session, now) ?? 0;
 
   if (session.status !== "PLAYING" || seconds > 60 || seconds <= 0) {

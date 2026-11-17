@@ -9,7 +9,15 @@ client-safe di [`lib/backend.ts`](../lib/backend.ts) memilih implementasi Supaba
 type QuestionType = 'MULTIPLE_CHOICE' | 'SHORT_ANSWER' | 'REARRANGE_WORDS'
 type Difficulty = 'EASY' | 'MEDIUM' | 'HARD'
 type SessionStatus = 'LOBBY' | 'PLAYING' | 'ENDED'
+type GameMode = 'CLASSIC' | 'SNAKES'
+type BoardPreset = 'MUDAH' | 'NORMAL' | 'SULIT'
 type LogKind = 'INFO' | 'CLAIM' | 'ATTACK' | 'JOIN' | 'SYSTEM' | 'ERROR'
+
+interface BoardLink { from: number; to: number }
+interface BoardConfig {
+  goal: number; preset: BoardPreset; seed: number
+  ladders: BoardLink[]; snakes: BoardLink[]
+}
 
 interface QuestionMetadata {
   options?: string[]
@@ -35,12 +43,14 @@ interface QuestionGroupSummary extends QuestionGroup {
 
 interface Session {
   id: string; session_code: string; group_id: string; subject_name: string
-  is_active: boolean; status: SessionStatus; duration_minutes: number
+  is_active: boolean; status: SessionStatus; game_mode: GameMode
+  board_config: BoardConfig | null; duration_minutes: number
   started_at: string | null; ended_at: string | null; created_at: string
 }
 
 interface Team {
   id: string; session_id: string; team_name: string; color_code: string
+  avatar: string | null; position: number; finished_at: string | null
   score: number; joined_at: string
 }
 
@@ -59,11 +69,24 @@ interface ActivityLog {
   message: string; kind: LogKind; created_at: string
 }
 
+interface Move {
+  id: string; session_id: string; team_id: string; slot_number: number
+  question_id: string; correct: boolean; points: number; delta: number
+  from_position: number; to_position: number; jump: number; created_at: string
+}
+
+interface SlotInfo {
+  slot_number: number; question_id: string
+  type: QuestionType; difficulty: Difficulty; points: number
+}
+
 interface GameState {
   session: Session
   teams: Team[]
   slots: SessionSlot[]
   answers: Answer[]
+  moves: Move[]
+  slotInfo: SlotInfo[]
   logs: ActivityLog[]
   serverTime: string
 }
@@ -77,6 +100,7 @@ interface SlotQuestion {
   slotNumber: number
   question: PublicQuestion
   solved: boolean
+  used: boolean
   attemptsLeft: number
   locked: boolean
   correctAnswer?: string
@@ -88,6 +112,14 @@ interface AnswerResult {
   gainedPoints: number
   attemptsLeft: number
   locked: boolean
+  delta?: number
+  position?: number
+  jump?: number
+  finished?: boolean
+}
+
+interface BoardStanding {
+  team: Team; position: number; rank: number; finishedAt: string | null
 }
 
 type JoinTeamResult =
@@ -122,26 +154,36 @@ interface GeneratedQuestionBank {
 
 `requestQuestion` mengacak `metadata.options` dan `metadata.words` di server. `attemptsLeft`
 dihitung dari `activity_logs` (maks `MAX_ATTEMPTS_PER_SLOT`); `locked` menandakan nomor sudah
-terkunci untuk tim tersebut. `correctAnswer` diisi bila `solved === true` atau `locked === true`
-(mode review), yaitu saat tim tersebut sudah menjawab benar nomor itu atau percobaannya sudah
-habis; selain itu `undefined`.
+terkunci untuk tim tersebut. `used` menandakan soal sudah dipakai di mode Ular Tangga.
+`correctAnswer` diisi bila `solved === true` atau (mode klasik) `locked === true` (mode review),
+yaitu saat tim tersebut sudah menjawab benar nomor itu atau percobaannya sudah habis; selain
+itu `undefined`.
 
-Sejak optimasi, `requestQuestion` dan `submitAnswer` didelegasikan ke RPC Postgres
-(`request_question`, `submit_answer`) sehingga hanya satu round-trip dan penambahan skor bersifat
-atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh `service_role`.
+Sejak optimasi, `requestQuestion`, `submitAnswer`, dan `submitMove` didelegasikan ke RPC
+Postgres (`request_question`, `submit_answer`, `submit_move`) sehingga hanya satu round-trip
+dan mutasi bersifat atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh
+`service_role`.
+
+`submitMove` hanya untuk sesi `game_mode = 'SNAKES'`. Hasilnya memuat `delta` (langkah hasil
+undian sesuai kesulitan saat benar, 0 saat salah), `position` (posisi akhir setelah
+ular/tangga), `jump` (efek ular/tangga), dan `finished`. Rentang langkah: Mudah 2–4, Sedang
+5–8, Sulit 9–12. Satu soal hanya bisa dipakai sekali per tim; jawaban salah tidak memindahkan
+bidak. `requestQuestion` mengembalikan `used` untuk menandai soal yang sudah hangus.
 
 ## 2. Server Actions
 
 | Action | Input | Output |
 | :--- | :--- | :--- |
-| `createSession` | `{ groupId, durationMinutes? }` | `{ code: string }` |
+| `createSession` | `{ groupId, durationMinutes?, mode?, boardPreset?, boardGoal? }` | `{ code: string }` |
 | `listSessions` | — | `Session[]` |
 | `listQuestionGroups` | — | `QuestionGroupSummary[]` |
 | `listGroupQuestions` | `groupId: string` | `Question[]` |
-| `joinTeam` | `{ sessionCode, teamName }` | `JoinTeamResult` |
+| `joinTeam` | `{ sessionCode, teamName, avatar? }` | `JoinTeamResult` |
+| `getSessionPreview` | `sessionCode: string` | `{ mode, status } \| null` |
 | `fetchGameState` | `sessionCode: string` | `GameState \| null` |
 | `requestQuestion` | `{ sessionCode, teamId, slotNumber }` | `SlotQuestion` |
 | `submitAnswer` | `{ sessionCode, teamId, slotNumber, answer }` | `AnswerResult` |
+| `submitMove` | `{ sessionCode, teamId, slotNumber, answer }` | `AnswerResult` |
 | `reportFocusEvent` | `{ sessionCode, teamId, awayMs, reason? }` | `void` |
 | `importQuestions` | `{ groupName, subject, questions }` | `{ groupId, groupName, inserted, created }` |
 | `deleteQuestionGroup` | `groupId: string` | `void` |
@@ -213,7 +255,8 @@ menekan **Mulai** lagi.
 ## 5. Dukungan Demo
 
 `lib/backend.ts` mengekspor fungsi dengan tanda tangan sama. Bila Supabase tidak dikonfigurasi,
-implementasi `lib/demo/engine.ts` (kunci `classroom-conquest:demo:v3`) yang dipakai.
+implementasi `lib/demo/engine.ts` (kunci `classroom-conquest:demo:v4`, dengan fallback baca
+`v3`) yang dipakai.
 
 - Data demo tersimpan di `localStorage` browser (satu perangkat).
 - Sinkronisasi antar-tab memakai `BroadcastChannel`.
@@ -227,11 +270,14 @@ implementasi `lib/demo/engine.ts` (kunci `classroom-conquest:demo:v3`) yang dipa
 type RealtimeEvent =
   | { type: 'answer.created'; answer: Answer }
   | { type: 'team.joined'; team: Team }
+  | { type: 'team.moved'; team: Team }
   | { type: 'session.updated'; session: Session }
+  | { type: 'log.created'; log: ActivityLog }
   | { type: 'refresh' }
 ```
 
-Mode Supabase memakai Broadcast (`answer.created`, `team.joined`, `session.updated`); mode demo
+Mode Supabase memakai Broadcast (`answer.created`, `team.joined`, `team.moved`,
+`session.updated`, `log.created`); mode demo
 selalu memancarkan `{ type: 'refresh' }`. `useGameState` menerapkan delta untuk `answer.created`
 dan `team.joined`, memperbarui `session.updated`, lalu menjadwalkan rekonsiliasi terkoalesi.
 

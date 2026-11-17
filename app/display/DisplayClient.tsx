@@ -4,8 +4,10 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ActivityLog from "@/components/ActivityLog";
+import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
 import Leaderboard from "@/components/Leaderboard";
+import SnakesBoard from "@/components/SnakesBoard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
 import QuestionBoard from "@/components/QuestionBoard";
@@ -22,7 +24,7 @@ import {
 import { useGameState } from "@/hooks/useGameState";
 import { useStoredValue, writeStoredValue } from "@/hooks/useLocalStorage";
 import { SOUND_STORAGE_KEY, playFeedback, unlockAudio } from "@/lib/feedback";
-import { buildLeaderboard } from "@/lib/game";
+import { buildBoardStandings, buildLeaderboard } from "@/lib/game";
 
 function isLeaveMessage(message: string): boolean {
   return (
@@ -138,10 +140,17 @@ function DisplayInner() {
   }
 
   const totalSlots = state?.slots.length ?? 0;
-  const champion =
-    state && totalSlots > 0
+  const isSnakes = state?.session.game_mode === "SNAKES";
+  const boardConfig = state?.session.board_config ?? null;
+  const classicChampion =
+    state && !isSnakes && totalSlots > 0
       ? buildLeaderboard(state.teams, state.answers, totalSlots)[0]
       : undefined;
+  const snakeChampion =
+    state && isSnakes
+      ? buildBoardStandings(state.teams, state.moves)[0]
+      : undefined;
+  const championTeam = snakeChampion?.team ?? classicChampion?.team;
 
   return (
     <main
@@ -160,7 +169,10 @@ function DisplayInner() {
               </p>
               <p className="flex items-center gap-1.5 font-semibold text-ink-soft">
                 <UsersIcon className="h-4 w-4 shrink-0" />
-                {totalSlots} soal ·{" "}
+                {isSnakes && boardConfig
+                  ? `${boardConfig.goal} petak`
+                  : `${totalSlots} soal`}{" "}
+                ·{" "}
                 {STATUS_LABEL[state.session.status] ?? state.session.status}
               </p>
             </div>
@@ -215,7 +227,7 @@ function DisplayInner() {
       ) : (
         <div className="grid min-w-0 flex-1 gap-5 lg:grid-cols-[1.6fr_1fr]">
           <section className="flex min-w-0 flex-col gap-4">
-            {state.session.status === "ENDED" && champion ? (
+            {state.session.status === "ENDED" && championTeam ? (
               <div className="cc-card flex items-center justify-center gap-4 p-5">
                 <Mascot mood="cheer" size={110} crown float />
                 <div className="text-left">
@@ -224,19 +236,30 @@ function DisplayInner() {
                     Pemenang
                   </p>
                   <p className="cc-display text-4xl font-extrabold text-ink">
-                    {champion.team.team_name}
+                    {championTeam.team_name}
                   </p>
                   <p className="text-sm font-bold text-ink-soft">
-                    {champion.correct}/{champion.total} benar · {champion.points}{" "}
-                    XP
+                    {isSnakes && boardConfig
+                      ? snakeChampion?.finishedAt
+                        ? `Finis di petak ${snakeChampion.position}/${boardConfig.goal}`
+                        : `Tanpa finis · terjauh di petak ${snakeChampion?.position ?? championTeam.position}/${boardConfig.goal}`
+                      : classicChampion
+                        ? `${classicChampion.correct}/${classicChampion.total} benar · ${classicChampion.points} XP`
+                        : ""}
                   </p>
                 </div>
               </div>
             ) : null}
             <div className="cc-card p-4">
-              {totalSlots === 0 ? (
+              {isSnakes && boardConfig ? (
+                <SnakesBoard
+                  config={boardConfig}
+                  teams={state.teams}
+                  variant="full"
+                />
+              ) : totalSlots === 0 ? (
                 <p className="py-10 text-center text-sm font-bold text-ink-soft">
-                  Nomor soal muncul setelah guru memulai sesi.
+                  Belum ada nomor soal pada sesi ini.
                 </p>
               ) : (
                 <QuestionBoard
@@ -266,13 +289,21 @@ function DisplayInner() {
           <section className="flex min-w-0 flex-col gap-5">
             <div className="cc-card p-4">
               <h2 className="cc-display mb-3 text-lg font-extrabold text-ink">
-                Peringkat Tim
+                {isSnakes ? "Posisi Tim" : "Peringkat Tim"}
               </h2>
-              <Leaderboard
-                teams={state.teams}
-                answers={state.answers}
-                totalSlots={totalSlots}
-              />
+              {isSnakes && boardConfig ? (
+                <BoardStandings
+                  teams={state.teams}
+                  config={boardConfig}
+                  moves={state.moves}
+                />
+              ) : (
+                <Leaderboard
+                  teams={state.teams}
+                  answers={state.answers}
+                  totalSlots={totalSlots}
+                />
+              )}
             </div>
             <div className="cc-card flex-1 p-4">
               <h2 className="cc-display mb-3 text-lg font-extrabold text-ink">
