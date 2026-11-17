@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { stepRangeFor } from "@/lib/game";
+import { MOVE_ROLL_READ_MS, stepRangeFor } from "@/lib/game";
+import { serverNow } from "@/lib/clock";
 import type { Difficulty } from "@/lib/types";
-
-export const DICE_ROLL_MS = 1800;
 
 const SPIN_MS = 950;
 const TICK_MS = 90;
@@ -66,16 +65,23 @@ export default function DiceRoll({
   bounced = false,
   finished = false,
   position,
+  closesAt,
 }: {
   value: number;
   difficulty: Difficulty;
   bounced?: boolean;
   finished?: boolean;
   position?: number;
+  closesAt?: number;
 }) {
   const total = Math.max(2, Math.min(12, value || 0));
   const [dice, setDice] = useState<[number, number]>([1, 1]);
   const [settled, setSettled] = useState(false);
+  const [spinMs] = useState(() => {
+    if (!closesAt) return SPIN_MS;
+    const remaining = Math.max(0, closesAt - serverNow());
+    return Math.max(420, Math.min(SPIN_MS, remaining - MOVE_ROLL_READ_MS));
+  });
   const style = DIFFICULTY_STYLE[difficulty] ?? DIFFICULTY_STYLE.EASY;
 
   useEffect(() => {
@@ -86,12 +92,12 @@ export default function DiceRoll({
       window.clearInterval(interval);
       setDice(splitDice(total));
       setSettled(true);
-    }, SPIN_MS);
+    }, spinMs);
     return () => {
       window.clearInterval(interval);
       window.clearTimeout(timeout);
     };
-  }, [total]);
+  }, [total, spinMs]);
 
   const range = stepRangeFor(difficulty);
 

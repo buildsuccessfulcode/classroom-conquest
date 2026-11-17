@@ -8,7 +8,7 @@ import Avatar from "@/components/Avatar";
 import AvatarPicker from "@/components/AvatarPicker";
 import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
-import DiceRoll, { DICE_ROLL_MS } from "@/components/DiceRoll";
+import DiceRoll from "@/components/DiceRoll";
 import Leaderboard from "@/components/Leaderboard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
@@ -47,6 +47,7 @@ import {
   buildLeaderboard,
   countWrongAttemptsForTeam,
   MAX_ATTEMPTS_PER_SLOT,
+  moveAnimationStart,
   remainingSeconds,
   stepRangeFor,
 } from "@/lib/game";
@@ -91,6 +92,7 @@ interface DiceRollState {
   bounced: boolean;
   finished: boolean;
   position: number;
+  closesAt: number;
 }
 
 export default function PlayClient() {
@@ -125,7 +127,6 @@ function PlayInner() {
   const [error, setError] = useState<string | null>(null);
   const [turn, setTurn] = useState<SlotQuestion | null>(null);
   const [diceRoll, setDiceRoll] = useState<DiceRollState | null>(null);
-  const [walkReady, setWalkReady] = useState(true);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
   const [boardFilter, setBoardFilter] = useState<"all" | "todo" | "done">(
     "all",
@@ -424,7 +425,6 @@ function PlayInner() {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         if (snakesMode) {
-          setWalkReady(false);
           const result = await submitMove({
             sessionCode: identity.sessionCode,
             teamId: identity.teamId,
@@ -441,32 +441,30 @@ function PlayInner() {
             message: result.message,
           };
           if (result.correct) {
+            const walkAt = moveAnimationStart(result.createdAt, serverNow());
+            const closesAt = Math.max(serverNow() + 650, walkAt - 250);
             setDiceRoll({
               value: result.delta ?? 0,
               difficulty,
               bounced: result.bounced ?? false,
               finished: result.finished ?? false,
               position: result.position ?? 0,
+              closesAt,
             });
             haptic([10, 30, 10]);
             const reloadPromise = reload();
-            await new Promise((resolve) =>
-              window.setTimeout(resolve, DICE_ROLL_MS),
-            );
-            await reloadPromise;
+            const wait = Math.max(0, closesAt - serverNow());
+            await new Promise((resolve) => window.setTimeout(resolve, wait));
             setDiceRoll(null);
             playFeedback("correct");
             haptic([14, 40, 14]);
             queueCelebration(feedback);
-            window.requestAnimationFrame(() => {
-              focusBoard();
-              setWalkReady(true);
-            });
+            window.requestAnimationFrame(focusBoard);
+            await reloadPromise;
           } else {
             playFeedback("wrong");
             haptic(18);
             setCelebration(feedback);
-            setWalkReady(true);
             await reload();
           }
           setBusy(false);
@@ -530,7 +528,6 @@ function PlayInner() {
     }
     setError(lastError instanceof Error ? lastError.message : "Gagal mengirim jawaban");
     await reload();
-    setWalkReady(true);
     setBusy(false);
   };
 
@@ -906,7 +903,6 @@ function PlayInner() {
             moves={state.moves}
             variant="mini"
             highlightTeamId={identity.teamId}
-            paused={diceRoll !== null || !walkReady}
             onWalkEnd={handleWalkEnd}
           />
         </section>
@@ -1130,6 +1126,7 @@ function PlayInner() {
           bounced={diceRoll.bounced}
           finished={diceRoll.finished}
           position={diceRoll.position}
+          closesAt={diceRoll.closesAt}
         />
       ) : null}
 

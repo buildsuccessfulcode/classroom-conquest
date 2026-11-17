@@ -119,6 +119,7 @@ interface AnswerResult {
   finished?: boolean
   streak?: number
   bounced?: boolean
+  createdAt?: string
 }
 
 interface BoardStanding {
@@ -169,8 +170,10 @@ dan mutasi bersifat atomik. Kontrak input/output tetap sama. RPC hanya dapat dip
 
 `submitMove` hanya untuk sesi `game_mode = 'SNAKES'`. Hasilnya memuat `delta` (langkah total
 hasil undian), `position` (posisi akhir setelah ular/tangga atau pantulan), `jump` (efek
-ular/tangga atau pantulan), `finished`, `streak`, dan `bounced`. Rentang langkah: Mudah 2-4,
-Sedang 5-8, Sulit 9-12 petak. `finishRule` pada `board_config` menentukan finis: `OVERSHOOT`
+ular/tangga atau pantulan), `finished`, `streak`, `bounced`, dan `createdAt` (waktu server saat
+langkah dicatat; dipakai semua layar untuk menyinkronkan fase dadu dan langkah). Rentang langkah:
+Mudah 2-4, Sedang 5-8, Sulit 9-12 petak. `finishRule` pada `board_config` menentukan finis:
+`OVERSHOOT`
 (melewati finis menang) atau `EXACT` (wajib pas; kelebihan mantul mundur). Satu soal hanya
 bisa dipakai sekali per tim; jawaban salah tidak memindahkan bidak.
 `requestQuestion` mengembalikan `used` untuk menandai soal yang sudah hangus.

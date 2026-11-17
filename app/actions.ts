@@ -613,7 +613,17 @@ export async function submitMove(input: {
   }
   const row = data as AnswerResult | null;
   if (!row) throw new Error("Gagal memproses langkah");
-  return row;
+  if (!row.correct) return row;
+  const { data: moveRow } = await sb()
+    .from("moves")
+    .select("created_at")
+    .eq("team_id", input.teamId)
+    .eq("slot_number", input.slotNumber)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const createdAt = (moveRow as { created_at: string } | null)?.created_at;
+  return createdAt ? { ...row, createdAt } : row;
 }
 
 export async function getSessionPreview(sessionCode: string): Promise<{

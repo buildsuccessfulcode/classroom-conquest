@@ -660,6 +660,7 @@ export async function submitMove(input: {
   const landing = from + delta;
   const resolved = resolveBoardMove(from, delta, config);
   const finished = correct && resolved.finished;
+  const createdAt = nowIso();
 
   db.moves.push({
     id: uid(),
@@ -673,7 +674,7 @@ export async function submitMove(input: {
     from_position: from,
     to_position: resolved.position,
     jump: resolved.jump,
-    created_at: nowIso(),
+    created_at: createdAt,
   });
 
   let message: string;
@@ -735,6 +736,7 @@ export async function submitMove(input: {
     finished,
     streak: correct ? priorStreak + 1 : 0,
     bounced: resolved.bounced,
+    createdAt: correct ? createdAt : undefined,
   };
 }
 

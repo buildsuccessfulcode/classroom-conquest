@@ -3,12 +3,8 @@
 import { useEffect } from "react";
 
 function isLowEnd(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const nav = navigator as Navigator & { deviceMemory?: number };
-  const cores = nav.hardwareConcurrency ?? 8;
-  const memory = nav.deviceMemory ?? 8;
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  return reduced || cores <= 4 || memory <= 4;
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 export default function RuntimeOptimizations() {

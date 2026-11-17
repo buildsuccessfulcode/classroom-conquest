@@ -195,6 +195,7 @@ export interface AnswerResult {
   finished?: boolean;
   streak?: number;
   bounced?: boolean;
+  createdAt?: string;
 }
 
 export interface BoardStanding {

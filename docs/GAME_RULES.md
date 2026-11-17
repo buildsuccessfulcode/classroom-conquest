@@ -91,7 +91,10 @@ Normalisasi jawaban: huruf kecil, rapikan spasi ganda, buang tanda baca tepi.
 4. **Langkah** mengikuti tingkat kesulitan soal: **Mudah 2–4**, **Sedang 5–8**, **Sulit
    9–12 petak**. Saat jawaban benar, server mengundi angka pada rentang tersebut, lalu UI
    menampilkan animasi dua dadu yang berputar dan berhenti pada hasilnya. Bidak baru bergerak
-   setelah animasi selesai.
+   setelah animasi selesai. Semua layar (HP penjawab, HP penonton, proyektor) memakai satu
+   jangkar waktu dari `created_at` langkah, sehingga proyektor tidak pernah mendahului dadu.
+   Perangkat dengan `prefers-reduced-motion` tetap melihat langkah versi ringkas, bukan lompat
+   langsung.
 5. Jawaban **benar**: bidak maju sebanyak langkah. Jika berhenti **tepat** di kaki tangga,
    bidak naik; jika berhenti **tepat** di kepala ular, bidak turun. Efek tidak berantai dan
    hanya berlaku saat maju.
@@ -134,6 +137,8 @@ Semua di `lib/game.ts`:
 - `MAX_ATTEMPTS_PER_SLOT` — batas percobaan salah per nomor per tim (mode klasik).
 - `SNAKES_STEP_RANGES` — rentang langkah per kesulitan (Mudah 2–4, Sedang 5–8, Sulit 9–12).
 - `stepsForDifficulty()` — mengundi langkah sesuai kesulitan.
+- `MOVE_ROLL_SPIN_MS` / `MOVE_ROLL_READ_MS` / `moveAnimationStart()` — jangkar fase dadu dan
+  langkah yang dipakai bersama semua layar.
 - `teamStreak()` — menghitung jawaban benar beruntun untuk umpan balik streak.
 - `MIN_QUESTIONS_RATIO` — rasio minimal jumlah soal terhadap panjang papan (0.5).
 - `MIN_BOARD_GOAL` — panjang papan minimum (10 petak).

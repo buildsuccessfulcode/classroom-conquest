@@ -504,7 +504,25 @@ export function resolveBoardMove(
 
 export const WALK_STEP_MS = 220;
 export const WALK_SLIDE_MS = 700;
-export const WALK_START_DELAY_MS = 300;
+export const MOVE_ROLL_SPIN_MS = 1150;
+export const MOVE_ROLL_READ_MS = 950;
+export const MOVE_ANIMATION_LEAD_MS =
+  MOVE_ROLL_SPIN_MS + MOVE_ROLL_READ_MS + 300;
+export const MOVE_ANIMATION_MIN_WAIT_MS = 900;
+export const MOVE_ANIMATION_MAX_WAIT_MS = 4200;
+
+export function moveAnimationStart(
+  createdAt: string | null | undefined,
+  receivedAt: number,
+): number {
+  const created =
+    typeof createdAt === "string" ? Date.parse(createdAt) : Number.NaN;
+  const fallback = receivedAt + MOVE_ANIMATION_MIN_WAIT_MS;
+  if (!Number.isFinite(created)) return fallback;
+  const anchor = created + MOVE_ANIMATION_LEAD_MS;
+  if (anchor <= receivedAt) return fallback;
+  return Math.min(anchor, receivedAt + MOVE_ANIMATION_MAX_WAIT_MS);
+}
 
 export interface WalkFrame {
   tile: number;
