@@ -257,6 +257,20 @@ body {
   }
 }
 
+@keyframes cc-walk-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.cc-walk-hop {
+  animation: cc-walk-hop 0.22s ease-in-out infinite;
+}
+
 @keyframes cc-flame {
   0%,
   100% {
@@ -431,7 +445,8 @@ body {
 [data-lite="true"] .cc-bob,
 [data-lite="true"] .cc-flame,
 [data-lite="true"] .cc-shine,
-[data-lite="true"] .cc-dice-roll {
+[data-lite="true"] .cc-dice-roll,
+[data-lite="true"] .cc-walk-hop {
   animation: none !important;
 }
 
@@ -453,6 +468,7 @@ body {
   .cc-slide-up,
   .cc-bounce-in,
   .cc-dice-roll,
+  .cc-walk-hop,
   .cc-flame,
   .cc-progress,
   .cc-shine,

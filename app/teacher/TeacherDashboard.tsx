@@ -559,6 +559,7 @@ export default function TeacherDashboard() {
                           <SnakesBoard
                             config={state.session.board_config}
                             teams={state.teams}
+                            moves={state.moves}
                           />
                           <p className="mt-2 text-xs font-semibold text-ink-soft">
                             Garis hijau = tangga naik, garis merah = ular turun.

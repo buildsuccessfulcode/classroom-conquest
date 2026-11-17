@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useBoardWalk } from "@/hooks/useBoardWalk";
 import { teamAbbreviation } from "@/lib/game";
-import type { BoardConfig, BoardLink, Team } from "@/lib/types";
+import type { BoardConfig, BoardLink, Move, Team } from "@/lib/types";
 import Avatar from "./Avatar";
 
 type Point = { x: number; y: number };
@@ -24,6 +25,13 @@ function tileToCell(tile: number, columns: number, rows: number) {
 function center(tile: number, columns: number, rows: number) {
   const cell = tileToCell(tile, columns, rows);
   return { x: cell.col + 0.5, y: cell.row + 0.5 };
+}
+
+function motionPoint(tile: number, columns: number, rows: number) {
+  if (tile <= 0) {
+    return { x: 0.5, y: rows + 0.35 };
+  }
+  return center(tile, columns, rows);
 }
 
 function direction(from: Point, to: Point) {
@@ -436,20 +444,40 @@ function Snake({
 export default function SnakesBoard({
   config,
   teams,
+  moves = [],
   variant = "full",
   highlightTeamId,
+  paused = false,
+  enabled = true,
+  onWalkStart,
+  onWalkEnd,
   className = "",
 }: {
   config: BoardConfig;
   teams: Team[];
+  moves?: Move[];
   variant?: "full" | "mini";
   highlightTeamId?: string;
+  paused?: boolean;
+  enabled?: boolean;
+  onWalkStart?: (teamId: string) => void;
+  onWalkEnd?: (teamId: string, move: Move) => void;
   className?: string;
 }) {
   const goal = Math.max(1, config.goal);
   const { columns, rows, total } = boardGeometry(goal);
   const mini = variant === "mini";
   const pawnSize = mini ? 18 : columns >= 10 ? 20 : 30;
+  const motions = useBoardWalk({
+    teams,
+    moves,
+    config,
+    paused,
+    enabled,
+    onWalkStart,
+    onWalkEnd,
+  });
+  const animatedIds = new Set(Object.keys(motions));
 
   const cells: (number | null)[] = Array(total).fill(null);
   for (let tile = 1; tile <= goal; tile += 1) {
@@ -459,9 +487,13 @@ export default function SnakesBoard({
 
   const ladderBases = new Set(config.ladders.map((link) => link.from));
   const snakeHeads = new Set(config.snakes.map((link) => link.from));
-  const atStart = teams.filter((team) => team.position <= 0 && !team.finished_at);
+  const atStart = teams.filter(
+    (team) =>
+      !animatedIds.has(team.id) && team.position <= 0 && !team.finished_at,
+  );
   const onTile = new Map<number, Team[]>();
   for (const team of teams) {
+    if (animatedIds.has(team.id)) continue;
     if (team.position <= 0) continue;
     const list = onTile.get(team.position);
     if (list) list.push(team);
@@ -578,6 +610,47 @@ export default function SnakesBoard({
             />
           ))}
         </svg>
+
+        <div className="pointer-events-none absolute inset-0 z-30">
+          {Object.entries(motions).map(([teamId, motion]) => {
+            const team = teams.find((item) => item.id === teamId);
+            if (!team) return null;
+            const point = motionPoint(motion.tile, columns, rows);
+            return (
+              <div
+                key={teamId}
+                className="absolute -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  left: `${(point.x / columns) * 100}%`,
+                  top: `${(point.y / rows) * 100}%`,
+                  transitionProperty: "left, top",
+                  transitionDuration: `${motion.durationMs}ms`,
+                  transitionTimingFunction: motion.sliding
+                    ? "ease-in-out"
+                    : "ease-out",
+                }}
+              >
+                <span
+                  className={[
+                    "inline-flex",
+                    motion.durationMs > 0 && !motion.sliding
+                      ? "cc-walk-hop"
+                      : "",
+                  ].join(" ")}
+                >
+                  <Avatar
+                    id={team.avatar}
+                    size={pawnSize}
+                    ringColor={team.color_code}
+                    className={
+                      team.id === highlightTeamId ? "ring-2 ring-ocean" : ""
+                    }
+                  />
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {atStart.length > 0 ? (

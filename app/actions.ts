@@ -164,7 +164,9 @@ async function autoEndIfExpired(session: Session): Promise<Session> {
     .select(SESSION_COLUMNS)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) return session;
+  if (!data) {
+    return (await getSessionByCode(session.session_code)) ?? session;
+  }
   await addLog(
     session.id,
     null,
@@ -172,6 +174,31 @@ async function autoEndIfExpired(session: Session): Promise<Session> {
     "SYSTEM",
   );
   return data as Session;
+}
+
+function isSessionTimeUpError(message: string): boolean {
+  return /waktu sesi sudah habis/i.test(message);
+}
+
+async function expireSessionByCode(sessionCode: string): Promise<void> {
+  const session = await getSessionByCode(sessionCode);
+  if (!session || session.status !== "PLAYING") return;
+  const now = new Date().toISOString();
+  const { data, error } = await sb()
+    .from("sessions")
+    .update({ status: "ENDED", is_active: false, ended_at: now })
+    .eq("id", session.id)
+    .eq("status", "PLAYING")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return;
+  await addLog(
+    session.id,
+    null,
+    "Waktu habis. Sesi berakhir otomatis.",
+    "SYSTEM",
+  );
 }
 
 async function getSessionByCode(code: string): Promise<Session | null> {
@@ -503,7 +530,13 @@ export async function requestQuestion(input: {
     p_team_id: input.teamId,
     p_slot_number: input.slotNumber,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isSessionTimeUpError(error.message)) {
+      await expireSessionByCode(input.sessionCode);
+      throw new Error("Waktu sesi sudah habis. Sesi berakhir.");
+    }
+    throw new Error(error.message);
+  }
   const row = data as {
     question: Question;
     solved: boolean;
@@ -541,7 +574,13 @@ export async function submitAnswer(input: {
     p_slot_number: input.slotNumber,
     p_answer: input.answer,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isSessionTimeUpError(error.message)) {
+      await expireSessionByCode(input.sessionCode);
+      throw new Error("Waktu sesi sudah habis. Sesi berakhir.");
+    }
+    throw new Error(error.message);
+  }
   const row = data as AnswerResult | null;
   if (!row) throw new Error("Gagal memproses jawaban");
   return row;
@@ -560,7 +599,13 @@ export async function submitMove(input: {
     p_slot_number: input.slotNumber,
     p_answer: input.answer,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isSessionTimeUpError(error.message)) {
+      await expireSessionByCode(input.sessionCode);
+      throw new Error("Waktu sesi sudah habis. Sesi berakhir.");
+    }
+    throw new Error(error.message);
+  }
   const row = data as AnswerResult | null;
   if (!row) throw new Error("Gagal memproses langkah");
   return row;

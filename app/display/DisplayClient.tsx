@@ -255,6 +255,7 @@ function DisplayInner() {
                 <SnakesBoard
                   config={boardConfig}
                   teams={state.teams}
+                  moves={state.moves}
                   variant="full"
                 />
               ) : totalSlots === 0 ? (

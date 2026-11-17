@@ -46,8 +46,10 @@ import {
   buildLeaderboard,
   countWrongAttemptsForTeam,
   MAX_ATTEMPTS_PER_SLOT,
+  remainingSeconds,
   stepRangeFor,
 } from "@/lib/game";
+import { serverNow } from "@/lib/clock";
 import { DEFAULT_AVATAR, type AvatarId } from "@/lib/avatars";
 import {
   BADGES,
@@ -119,6 +121,7 @@ function PlayInner() {
   const [error, setError] = useState<string | null>(null);
   const [turn, setTurn] = useState<SlotQuestion | null>(null);
   const [diceRoll, setDiceRoll] = useState<DiceRollState | null>(null);
+  const [walkReady, setWalkReady] = useState(true);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
   const [boardFilter, setBoardFilter] = useState<"all" | "todo" | "done">(
     "all",
@@ -126,6 +129,9 @@ function PlayInner() {
   const soundPref = useStoredValue(SOUND_STORAGE_KEY);
   const soundOn = soundPref !== "off";
   const prevStatusRef = useRef<string | null>(null);
+  const boardRef = useRef<HTMLElement | null>(null);
+  const pendingCelebrationRef = useRef<Celebration | null>(null);
+  const celebrationTimerRef = useRef<number | null>(null);
 
   const { state, loading, error: stateError, reload } = useGameState(
     identity?.sessionCode ?? null,
@@ -263,8 +269,14 @@ function PlayInner() {
 
   const handleSelect = useCallback(
     async (slotNumber: number) => {
-      if (!identity) return;
-      if (state?.session.status !== "PLAYING") return;
+      const session = state?.session;
+      if (!identity || !session) return;
+      if (session.status !== "PLAYING") return;
+      if ((remainingSeconds(session, serverNow()) ?? 0) <= 0) {
+        setError("Waktu sesi sudah habis. Sesi berakhir.");
+        void reload();
+        return;
+      }
       unlockAudio();
       setBusy(true);
       setLoadingSlot(slotNumber);
@@ -282,19 +294,75 @@ function PlayInner() {
         setTurn(request);
         router.replace(`${pathname}?slot=${slotNumber}`, { scroll: false });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Gagal mengambil soal");
+        const message =
+          err instanceof Error ? err.message : "Gagal mengambil soal";
+        setError(message);
+        if (/habis|berakhir/i.test(message)) void reload();
       } finally {
         setBusy(false);
         setLoadingSlot(null);
       }
     },
-    [identity, pathname, router, state?.session.status],
+    [identity, pathname, reload, router, state],
   );
 
   const closeTurn = useCallback(() => {
     setTurn(null);
     router.replace(pathname, { scroll: false });
   }, [pathname, router]);
+
+  const focusBoard = useCallback(() => {
+    const node = boardRef.current;
+    if (!node) return;
+    const reduced =
+      document.documentElement.dataset.lite === "true" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    node.scrollIntoView({
+      behavior: reduced ? "auto" : "smooth",
+      block: "center",
+    });
+  }, []);
+
+  const flushPendingCelebration = useCallback(() => {
+    if (celebrationTimerRef.current !== null) {
+      window.clearTimeout(celebrationTimerRef.current);
+      celebrationTimerRef.current = null;
+    }
+    const pending = pendingCelebrationRef.current;
+    if (!pending) return;
+    pendingCelebrationRef.current = null;
+    setCelebration(pending);
+  }, []);
+
+  const queueCelebration = useCallback(
+    (value: Celebration) => {
+      pendingCelebrationRef.current = value;
+      if (celebrationTimerRef.current !== null) {
+        window.clearTimeout(celebrationTimerRef.current);
+      }
+      celebrationTimerRef.current = window.setTimeout(() => {
+        celebrationTimerRef.current = null;
+        flushPendingCelebration();
+      }, 6000);
+    },
+    [flushPendingCelebration],
+  );
+
+  const handleWalkEnd = useCallback(
+    (teamId: string) => {
+      if (teamId !== identity?.teamId) return;
+      flushPendingCelebration();
+    },
+    [flushPendingCelebration, identity?.teamId],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (celebrationTimerRef.current !== null) {
+        window.clearTimeout(celebrationTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleLeaveRoom = useCallback(() => {
     clear();
@@ -329,6 +397,12 @@ function PlayInner() {
 
   const handleAnswer = async (answer: string) => {
     if (!turn || !identity) return;
+    if (state && (remainingSeconds(state.session, serverNow()) ?? 0) <= 0) {
+      closeTurn();
+      setError("Waktu sesi sudah habis. Sesi berakhir.");
+      void reload();
+      return;
+    }
     const snakesMode = state?.session.game_mode === "SNAKES";
     const slotNumber = turn.slotNumber;
     const difficulty = turn.question.difficulty;
@@ -342,23 +416,14 @@ function PlayInner() {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         if (snakesMode) {
+          setWalkReady(false);
           const result = await submitMove({
             sessionCode: identity.sessionCode,
             teamId: identity.teamId,
             slotNumber,
             answer,
           });
-          if (result.correct) {
-            setDiceRoll({ value: result.delta ?? 0, difficulty });
-            haptic([10, 30, 10]);
-            await new Promise((resolve) =>
-              window.setTimeout(resolve, DICE_ROLL_MS),
-            );
-            setDiceRoll(null);
-          }
-          playFeedback(result.correct ? "correct" : "wrong");
-          haptic(result.correct ? [14, 40, 14] : 18);
-          setCelebration({
+          const feedback: Celebration = {
             correct: result.correct,
             gained: result.delta ?? 0,
             streak: 0,
@@ -366,8 +431,30 @@ function PlayInner() {
             levelUp: false,
             level: 1,
             message: result.message,
-          });
-          await reload();
+          };
+          if (result.correct) {
+            setDiceRoll({ value: result.delta ?? 0, difficulty });
+            haptic([10, 30, 10]);
+            const reloadPromise = reload();
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, DICE_ROLL_MS),
+            );
+            await reloadPromise;
+            setDiceRoll(null);
+            playFeedback("correct");
+            haptic([14, 40, 14]);
+            queueCelebration(feedback);
+            window.requestAnimationFrame(() => {
+              focusBoard();
+              setWalkReady(true);
+            });
+          } else {
+            playFeedback("wrong");
+            haptic(18);
+            setCelebration(feedback);
+            setWalkReady(true);
+            await reload();
+          }
           setBusy(false);
           return;
         }
@@ -429,6 +516,7 @@ function PlayInner() {
     }
     setError(lastError instanceof Error ? lastError.message : "Gagal mengirim jawaban");
     await reload();
+    setWalkReady(true);
     setBusy(false);
   };
 
@@ -779,6 +867,28 @@ function PlayInner() {
         </section>
       ) : null}
 
+      {isSnakes && boardConfig && status !== "LOBBY" ? (
+        <section ref={boardRef} className="cc-card scroll-mt-24 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="cc-display text-lg font-extrabold text-ink">
+              Papan Ular Tangga
+            </h2>
+            <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-extrabold text-brand-dark">
+              Petak {myTeam?.position ?? 0}/{boardConfig.goal}
+            </span>
+          </div>
+          <SnakesBoard
+            config={boardConfig}
+            teams={state.teams}
+            moves={state.moves}
+            variant="mini"
+            highlightTeamId={identity.teamId}
+            paused={diceRoll !== null || !walkReady}
+            onWalkEnd={handleWalkEnd}
+          />
+        </section>
+      ) : null}
+
       {status === "PLAYING" ? (
         isSnakes && boardConfig ? (
           <>
@@ -789,23 +899,6 @@ function PlayInner() {
                 kesulitan soal: Mudah 2–4, Sedang 5–8, Sulit 9–12 petak.
                 Jawaban salah membuat bidak tetap dan soal hangus.
               </p>
-            </section>
-
-            <section className="cc-card p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h2 className="cc-display text-lg font-extrabold text-ink">
-                  Papan Ular Tangga
-                </h2>
-                <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-extrabold text-brand-dark">
-                  Petak {myTeam?.position ?? 0}/{boardConfig.goal}
-                </span>
-              </div>
-              <SnakesBoard
-                config={boardConfig}
-                teams={state.teams}
-                variant="mini"
-                highlightTeamId={identity.teamId}
-              />
             </section>
 
             <section className="cc-card p-4">

@@ -304,6 +304,37 @@ export function resolveBoardMove(
   return { raw, position: raw, jump: 0, finished: false };
 }
 
+export const WALK_STEP_MS = 220;
+export const WALK_SLIDE_MS = 700;
+export const WALK_START_DELAY_MS = 300;
+
+export interface WalkFrame {
+  tile: number;
+  durationMs: number;
+  sliding: boolean;
+}
+
+export function buildWalkFrames(move: Move, config: BoardConfig): WalkFrame[] {
+  if (!move.correct || move.delta <= 0) return [];
+  const goal = Math.max(1, config.goal);
+  const clamp = (value: number) => Math.min(goal, Math.max(0, value));
+  const from = clamp(move.from_position);
+  const raw = clamp(
+    move.jump !== 0 ? move.to_position - move.jump : move.to_position,
+  );
+  const finalTile = clamp(move.to_position);
+  const frames: WalkFrame[] = [
+    { tile: from, durationMs: 0, sliding: false },
+  ];
+  for (let tile = Math.max(1, from + 1); tile <= raw; tile += 1) {
+    frames.push({ tile, durationMs: WALK_STEP_MS, sliding: false });
+  }
+  if (finalTile !== raw) {
+    frames.push({ tile: finalTile, durationMs: WALK_SLIDE_MS, sliding: true });
+  }
+  return frames;
+}
+
 export function teamAbbreviation(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return "";
