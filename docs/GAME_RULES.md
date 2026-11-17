@@ -32,13 +32,14 @@
    - tercatat di tabel `answers` (sekali saja per nomor per tim),
    - `teams.score += question.points`,
    - log: `"Tim X menjawab benar nomor 3 (+150)"`,
-   - saat nomor dibuka lagi, kunci jawaban hanya ditampilkan ke tim yang sudah menjawab
-     benar nomor tersebut.
+   - saat nomor dibuka lagi, kunci jawaban ditampilkan ke tim yang sudah menjawab benar nomor
+     tersebut atau yang nomornya sudah terkunci (mode belajar).
 4. Jika **salah**: tidak ada penalti, nomor tetap tersedia untuk dicoba lagi, log mencatat
    percobaan gagal beserta nomornya (`"Tim X menjawab salah nomor 3 (percobaan 1/2)"`).
 5. **Batas percobaan:** tiap nomor hanya bisa dicoba maksimal `MAX_ATTEMPTS_PER_SLOT` kali
-   per tim (default 2). Setelah batas tercapai, nomor **terkunci** untuk tim tersebut;
-   permintaan soal dan pengiriman jawaban ditolak di server.
+   per tim (default 2). Setelah batas tercapai, nomor **terkunci** untuk tim tersebut dan
+   ditandai ikon kunci di papan; nomor tetap bisa dibuka untuk melihat jawaban benar (mode
+   belajar), tetapi pengiriman jawaban ditolak di server.
 6. Tim boleh melanjutkan ke nomor lain kapan saja, tanpa harus berurutan.
 
 ## 4. Tipe Soal

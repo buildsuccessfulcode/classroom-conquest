@@ -89,7 +89,7 @@ npm run analyze        # bundle analyzer
 
 1. `questions.correct_answer` TIDAK BOLEH sampai ke client saat bermain. Gunakan
    `PublicQuestion`. Pengecualian mode review: `SlotQuestion.correctAnswer` hanya diisi bila
-   tim itu sudah menjawab benar nomor tersebut.
+   tim itu sudah menjawab benar nomor tersebut atau nomornya sudah terkunci (habis percobaan).
 2. Anon hanya `SELECT`; semua tulis lewat service role di server. RPC `request_question` dan
    `submit_answer` di-`revoke` dari anon (hanya `service_role`).
 3. Realtime memakai **Broadcast** dari trigger DB (`answer.created`, `team.joined`,

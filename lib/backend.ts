@@ -17,7 +17,7 @@ import type {
   GenerateQuestionsInput,
   GeminiModel,
   JoinTeamResult,
-  PublicQuestion,
+  Question,
   QuestionGroupSummary,
   SeedQuestion,
   Session,
@@ -53,7 +53,7 @@ export async function listQuestionGroups(): Promise<QuestionGroupSummary[]> {
 
 export async function listGroupQuestions(
   groupId: string,
-): Promise<PublicQuestion[]> {
+): Promise<Question[]> {
   if (isSupabaseConfigured()) return actions.listGroupQuestions(groupId);
   return demo.listGroupQuestions(groupId);
 }

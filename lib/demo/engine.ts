@@ -219,11 +219,9 @@ export async function listQuestionGroups(): Promise<QuestionGroupSummary[]> {
 
 export async function listGroupQuestions(
   groupId: string,
-): Promise<PublicQuestion[]> {
+): Promise<Question[]> {
   const db = load();
-  return db.questions
-    .filter((q) => q.group_id === groupId)
-    .map((q) => toPublicQuestion(q));
+  return db.questions.filter((q) => q.group_id === groupId);
 }
 
 export async function createSession(input: {
@@ -380,13 +378,14 @@ export async function requestQuestion(input: {
     team.id,
     input.slotNumber,
   );
+  const locked = wrongAttempts >= MAX_ATTEMPTS_PER_SLOT;
   return {
     slotNumber: input.slotNumber,
     question: withShuffledChoices(toPublicQuestion(question)),
     solved,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
-    locked: wrongAttempts >= MAX_ATTEMPTS_PER_SLOT,
-    correctAnswer: solved ? question.correct_answer : undefined,
+    locked,
+    correctAnswer: solved || locked ? question.correct_answer : undefined,
   };
 }
 

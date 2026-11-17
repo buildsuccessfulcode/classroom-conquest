@@ -232,18 +232,18 @@ export async function listQuestionGroups(): Promise<QuestionGroupSummary[]> {
 
 export async function listGroupQuestions(
   groupId: string,
-): Promise<PublicQuestion[]> {
+): Promise<Question[]> {
   await requireTeacher();
   const { data, error } = await sb()
     .from("questions")
     .select(
-      "id, group_id, subject, type, difficulty, question_text, metadata, points",
+      "id, group_id, subject, type, difficulty, question_text, metadata, correct_answer, points",
     )
     .eq("group_id", groupId)
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data as PublicQuestion[] | null) ?? [];
+  return (data as Question[] | null) ?? [];
 }
 
 export async function createSession(input: {
@@ -411,13 +411,15 @@ export async function requestQuestion(input: {
   } | null;
   if (!row || !row.question) throw new Error("Soal tidak ditemukan");
   const wrongAttempts = row.wrong_attempts ?? 0;
+  const locked = wrongAttempts >= MAX_ATTEMPTS_PER_SLOT;
   return {
     slotNumber: input.slotNumber,
     question: withShuffledChoices(toPublicQuestion(row.question)),
     solved: row.solved,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS_PER_SLOT - wrongAttempts),
-    locked: wrongAttempts >= MAX_ATTEMPTS_PER_SLOT,
-    correctAnswer: row.solved ? row.question.correct_answer : undefined,
+    locked,
+    correctAnswer:
+      row.solved || locked ? row.question.correct_answer : undefined,
   };
 }
 

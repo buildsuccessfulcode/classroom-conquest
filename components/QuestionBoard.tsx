@@ -142,8 +142,13 @@ export default function QuestionBoard({
               <button
                 key={slot}
                 type="button"
-                disabled={disabled || isLocked}
+                disabled={disabled}
                 aria-busy={isLoading}
+                aria-label={
+                  isLocked
+                    ? `Nomor ${slot} terkunci, buka untuk melihat jawaban`
+                    : undefined
+                }
                 onClick={() => onSelect?.(slot)}
                 className={[
                   "cc-tile cc-cv relative flex aspect-square items-center justify-center rounded-2xl border-2 border-b-4 font-extrabold",
@@ -169,14 +174,16 @@ export default function QuestionBoard({
                     <circle cx="12" cy="12" r="9" className="opacity-25" />
                     <path d="M21 12a9 9 0 0 0-9-9" strokeLinecap="round" />
                   </svg>
-                ) : isLocked ? (
-                  <LockIcon className="h-6 w-6" />
                 ) : (
                   <>
                     <span className="cc-display text-2xl">{slot}</span>
                     {solved ? (
                       <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white/30">
                         <CheckIcon className="h-3.5 w-3.5" />
+                      </span>
+                    ) : isLocked ? (
+                      <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-cherry-soft text-cherry-dark">
+                        <LockIcon className="h-3.5 w-3.5" />
                       </span>
                     ) : null}
                   </>

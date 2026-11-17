@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { generateQuestions, getAiSettings } from "@/lib/backend";
+import { pointsFor } from "@/lib/game";
 import type {
   Difficulty,
   GeneratedQuestionBank,
   QuestionType,
+  SeedQuestion,
 } from "@/lib/types";
 import { CopyIcon, KeyIcon, SparkleIcon, UploadIcon, WandIcon } from "./icons";
 
@@ -96,6 +98,7 @@ export default function QuestionGenerator({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GeneratedQuestionBank | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -167,6 +170,7 @@ export default function QuestionGenerator({
           types: effectiveTypes,
         });
         setResult(generated);
+        setEditingIndex(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal generate soal");
       } finally {
@@ -199,6 +203,57 @@ export default function QuestionGenerator({
       subject: subject.trim() || "Umum",
       raw: result.raw,
     });
+  };
+
+  const updateResult = (
+    updater: (questions: SeedQuestion[]) => SeedQuestion[],
+  ) => {
+    setResult((prev) => {
+      if (!prev) return prev;
+      const questions = updater(prev.questions);
+      return { ...prev, questions, raw: JSON.stringify(questions, null, 2) };
+    });
+  };
+
+  const updateQuestion = (index: number, patch: Partial<SeedQuestion>) => {
+    updateResult((list) =>
+      list.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
+    );
+  };
+
+  const updateOptions = (index: number, text: string) => {
+    const options = text
+      .split("\n")
+      .map((option) => option.trim())
+      .filter(Boolean);
+    updateResult((list) =>
+      list.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, metadata: { ...(item.metadata ?? {}), options } }
+          : item,
+      ),
+    );
+  };
+
+  const updateWords = (index: number, text: string) => {
+    const words = text
+      .split(",")
+      .map((word) => word.trim())
+      .filter(Boolean);
+    updateResult((list) =>
+      list.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, metadata: { ...(item.metadata ?? {}), words } }
+          : item,
+      ),
+    );
+  };
+
+  const removeGeneratedQuestion = (index: number) => {
+    updateResult((list) => list.filter((_, itemIndex) => itemIndex !== index));
+    setEditingIndex(null);
   };
 
   const distributionFields = useMemo(
@@ -446,34 +501,135 @@ export default function QuestionGenerator({
                     {question.points} XP
                   </span>
                 </div>
-                <p className="text-sm font-semibold text-ink">
-                  {question.question_text}
-                </p>
-                {question.metadata?.code_snippet ? (
-                  <pre className="mt-1 overflow-x-auto rounded-xl bg-ink/90 p-2 font-mono text-xs text-white">
-                    {question.metadata.code_snippet}
-                  </pre>
-                ) : null}
-                {question.metadata?.options ? (
-                  <ul className="mt-1 flex flex-wrap gap-1.5">
-                    {question.metadata.options.map((option, optionIndex) => (
-                      <li
-                        key={optionIndex}
-                        className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-ink-soft"
+                {editingIndex === index ? (
+                  <div className="flex flex-col gap-2">
+                    <label className="flex flex-col gap-1 text-xs font-extrabold text-ink-soft">
+                      Teks soal
+                      <textarea
+                        value={question.question_text}
+                        onChange={(event) =>
+                          updateQuestion(index, {
+                            question_text: event.target.value,
+                          })
+                        }
+                        rows={2}
+                        className="w-full min-w-0 rounded-xl border-2 border-cloud bg-white p-2 text-sm font-semibold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                      />
+                    </label>
+                    {question.type === "MULTIPLE_CHOICE" ? (
+                      <label className="flex flex-col gap-1 text-xs font-extrabold text-ink-soft">
+                        Opsi (satu per baris)
+                        <textarea
+                          value={(question.metadata?.options ?? []).join("\n")}
+                          onChange={(event) =>
+                            updateOptions(index, event.target.value)
+                          }
+                          rows={Math.max(2, question.metadata?.options?.length ?? 2)}
+                          className="w-full min-w-0 rounded-xl border-2 border-cloud bg-white p-2 text-sm font-semibold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                        />
+                      </label>
+                    ) : null}
+                    {question.type === "REARRANGE_WORDS" ? (
+                      <label className="flex flex-col gap-1 text-xs font-extrabold text-ink-soft">
+                        Kata (pisahkan dengan koma)
+                        <input
+                          value={(question.metadata?.words ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateWords(index, event.target.value)
+                          }
+                          className="w-full min-w-0 rounded-xl border-2 border-cloud bg-white p-2 text-sm font-semibold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                        />
+                      </label>
+                    ) : null}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-xs font-extrabold text-ink-soft">
+                        Jawaban benar
+                        <input
+                          value={question.correct_answer}
+                          onChange={(event) =>
+                            updateQuestion(index, {
+                              correct_answer: event.target.value,
+                            })
+                          }
+                          className="w-full min-w-0 rounded-xl border-2 border-cloud bg-white p-2 text-sm font-semibold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs font-extrabold text-ink-soft">
+                        Kesulitan
+                        <select
+                          value={question.difficulty}
+                          onChange={(event) =>
+                            updateQuestion(index, {
+                              difficulty: event.target.value as Difficulty,
+                              points: pointsFor(
+                                event.target.value as Difficulty,
+                              ),
+                            })
+                          }
+                          className="w-full min-w-0 rounded-xl border-2 border-cloud bg-white p-2 text-sm font-semibold text-ink outline-none transition focus:border-ocean focus:ring-4 focus:ring-ocean/20"
+                        >
+                          <option value="EASY">Mudah</option>
+                          <option value="MEDIUM">Sedang</option>
+                          <option value="HARD">Sulit</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingIndex(null)}
+                        className="cc-btn border-brand-dark bg-brand px-3 py-1.5 text-xs text-white"
                       >
-                        {option}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {question.metadata?.words ? (
-                  <p className="mt-1 text-xs font-semibold text-ink-soft">
-                    Kata: {question.metadata.words.join(", ")}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-xs font-extrabold text-brand-dark">
-                  Jawaban: {question.correct_answer}
-                </p>
+                        Selesai
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeGeneratedQuestion(index)}
+                        className="cc-btn border-cherry-dark bg-cherry-soft px-3 py-1.5 text-xs text-cherry-dark"
+                      >
+                        Hapus soal
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-ink">
+                      {question.question_text}
+                    </p>
+                    {question.metadata?.code_snippet ? (
+                      <pre className="mt-1 overflow-x-auto rounded-xl bg-ink/90 p-2 font-mono text-xs text-white">
+                        {question.metadata.code_snippet}
+                      </pre>
+                    ) : null}
+                    {question.metadata?.options ? (
+                      <ul className="mt-1 flex flex-wrap gap-1.5">
+                        {question.metadata.options.map((option, optionIndex) => (
+                          <li
+                            key={optionIndex}
+                            className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-ink-soft"
+                          >
+                            {option}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {question.metadata?.words ? (
+                      <p className="mt-1 text-xs font-semibold text-ink-soft">
+                        Kata: {question.metadata.words.join(", ")}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs font-extrabold text-brand-dark">
+                      Jawaban: {question.correct_answer}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setEditingIndex(index)}
+                      className="mt-1 text-xs font-extrabold text-ocean-dark underline"
+                    >
+                      Ubah soal
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>

@@ -726,8 +726,8 @@ function PlayInner() {
             ) : null}
             {turn.locked ? (
               <p className="mb-3 rounded-2xl bg-cherry-soft px-3 py-2 text-sm font-bold text-cherry-dark">
-                Nomor ini terkunci setelah mencapai batas percobaan. Coba nomor
-                lain, ya.
+                Nomor ini terkunci setelah mencapai batas percobaan. Jawaban
+                benar ditampilkan untuk belajar.
               </p>
             ) : null}
 

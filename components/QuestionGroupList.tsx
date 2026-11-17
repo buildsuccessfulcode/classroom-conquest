@@ -6,7 +6,7 @@ import {
   deleteQuestionGroup,
   listGroupQuestions,
 } from "@/lib/backend";
-import type { PublicQuestion, QuestionGroupSummary } from "@/lib/types";
+import type { Question, QuestionGroupSummary } from "@/lib/types";
 import { TrashIcon } from "./icons";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -29,7 +29,7 @@ export default function QuestionGroupList({
   onChanged: () => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<Record<string, PublicQuestion[]>>(
+  const [questions, setQuestions] = useState<Record<string, Question[]>>(
     {},
   );
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -160,6 +160,33 @@ export default function QuestionGroupList({
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-ink">
                                 {question.question_text}
+                              </p>
+                              {question.metadata?.code_snippet ? (
+                                <pre className="mt-1 overflow-x-auto rounded-lg bg-ink/90 p-2 font-mono text-xs text-white">
+                                  {question.metadata.code_snippet}
+                                </pre>
+                              ) : null}
+                              {question.metadata?.options ? (
+                                <ul className="mt-1 flex flex-wrap gap-1.5">
+                                  {question.metadata.options.map(
+                                    (option, optionIndex) => (
+                                      <li
+                                        key={optionIndex}
+                                        className="rounded-lg bg-snow px-2 py-1 text-xs font-semibold text-ink-soft"
+                                      >
+                                        {option}
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              ) : null}
+                              {question.metadata?.words ? (
+                                <p className="mt-1 text-xs font-semibold text-ink-soft">
+                                  Kata: {question.metadata.words.join(", ")}
+                                </p>
+                              ) : null}
+                              <p className="mt-1 text-xs font-extrabold text-brand-dark">
+                                Jawaban: {question.correct_answer}
                               </p>
                               <p className="text-xs font-semibold text-ink-soft">
                                 {TYPE_LABEL[question.type] ?? question.type} ·{" "}

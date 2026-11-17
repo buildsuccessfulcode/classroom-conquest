@@ -122,8 +122,9 @@ interface GeneratedQuestionBank {
 
 `requestQuestion` mengacak `metadata.options` dan `metadata.words` di server. `attemptsLeft`
 dihitung dari `activity_logs` (maks `MAX_ATTEMPTS_PER_SLOT`); `locked` menandakan nomor sudah
-terkunci untuk tim tersebut. `correctAnswer` hanya diisi bila `solved === true` (mode review),
-yaitu saat tim tersebut sudah menjawab benar nomor itu; selain itu `undefined`.
+terkunci untuk tim tersebut. `correctAnswer` diisi bila `solved === true` atau `locked === true`
+(mode review), yaitu saat tim tersebut sudah menjawab benar nomor itu atau percobaannya sudah
+habis; selain itu `undefined`.
 
 Sejak optimasi, `requestQuestion` dan `submitAnswer` didelegasikan ke RPC Postgres
 (`request_question`, `submit_answer`) sehingga hanya satu round-trip dan penambahan skor bersifat
@@ -136,7 +137,7 @@ atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh `service
 | `createSession` | `{ groupId, durationMinutes? }` | `{ code: string }` |
 | `listSessions` | — | `Session[]` |
 | `listQuestionGroups` | — | `QuestionGroupSummary[]` |
-| `listGroupQuestions` | `groupId: string` | `PublicQuestion[]` |
+| `listGroupQuestions` | `groupId: string` | `Question[]` |
 | `joinTeam` | `{ sessionCode, teamName }` | `JoinTeamResult` |
 | `fetchGameState` | `sessionCode: string` | `GameState \| null` |
 | `requestQuestion` | `{ sessionCode, teamId, slotNumber }` | `SlotQuestion` |
@@ -155,6 +156,9 @@ atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh `service
 | `endSession` | `sessionCode` | `void` |
 | `deleteSession` | `sessionCode` | `void` |
 
+`listGroupQuestions` hanya untuk guru (`requireTeacher`) sehingga menyertakan `correct_answer`
+agar jawaban bisa ditampilkan di tab Bank Soal.
+
 ### Contoh
 
 ```ts
@@ -166,7 +170,7 @@ await startSession(code) // snapshot sudah dibuat saat createSession
 
 const turn = await requestQuestion({ sessionCode: code, teamId, slotNumber: 2 })
 // turn.solved = apakah tim ini sudah menjawab benar (mode review)
-// turn.correctAnswer = kunci jawaban, hanya ada bila turn.solved
+// turn.correctAnswer = kunci jawaban, ada bila turn.solved atau turn.locked
 
 const res = await submitAnswer({ sessionCode: code, teamId, slotNumber: 2, answer: 'bought' })
 // res.correct === true -> poin bertambah, realtime memperbarui papan
