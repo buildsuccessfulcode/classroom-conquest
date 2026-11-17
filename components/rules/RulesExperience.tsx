@@ -265,13 +265,18 @@ const RULES: Rule[] = [
               tim tersebut.
             </>,
             <>
+              Guru memilih aturan finis saat membuat sesi:{" "}
+              <Hi>Lewat finis = menang</Hi> atau <Hi>Finis Sempurna</Hi> (wajib
+              mendarat tepat; kelebihan langkah membuat bidak mantul mundur).
+            </>,
+            <>
               Tim pertama yang mencapai petak finis memenangkan sesi. Jika waktu
               habis tanpa finis, tim dengan petak terjauh menang (tie-break: lebih
               dulu mencapai petak itu, lalu nama tim).
             </>,
             <>
-              Jumlah soal minimal <Hi>60%</Hi> dari panjang papan. Papan 30 petak
-              butuh minimal 18 soal; pilihan papan yang terlalu panjang otomatis
+              Jumlah soal minimal <Hi>50%</Hi> dari panjang papan. Papan 30 petak
+              butuh minimal 15 soal; pilihan papan yang terlalu panjang otomatis
               dibatasi.
             </>,
           ]}

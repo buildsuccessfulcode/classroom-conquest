@@ -37,6 +37,7 @@ import type {
   AnswerResult,
   BoardConfig,
   BoardPreset,
+  FinishRule,
   GameMode,
   GameState,
   GeneratedQuestionBank,
@@ -291,6 +292,7 @@ export async function createSession(input: {
   mode?: GameMode;
   boardPreset?: BoardPreset;
   boardGoal?: number;
+  finishRule?: FinishRule;
 }): Promise<{ code: string }> {
   await requireTeacher();
   const client = sb();
@@ -316,7 +318,7 @@ export async function createSession(input: {
     const count = questionCount ?? 0;
     if (count < minQuestionsForBoard()) {
       throw new Error(
-        `Mode Ular Tangga butuh minimal ${minQuestionsForBoard()} soal (60% dari papan minimum 10 petak). Tambah soal atau gunakan mode Klasik.`,
+        `Mode Ular Tangga butuh minimal ${minQuestionsForBoard()} soal (50% dari papan minimum 10 petak). Tambah soal atau gunakan mode Klasik.`,
       );
     }
     const preset: BoardPreset =
@@ -329,9 +331,12 @@ export async function createSession(input: {
     );
     const safeGoal = goalFromQuestionCount(count);
     const goal = allowedGoal ? Math.min(requested, safeGoal) : safeGoal;
+    const finishRule: FinishRule =
+      input.finishRule === "EXACT" ? "EXACT" : "OVERSHOOT";
     boardConfig = buildBoardConfig({
       goal,
       preset,
+      finishRule,
       seed: Math.floor(Math.random() * 1_000_000_000),
     });
   }

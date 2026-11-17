@@ -11,11 +11,12 @@ type Difficulty = 'EASY' | 'MEDIUM' | 'HARD'
 type SessionStatus = 'LOBBY' | 'PLAYING' | 'ENDED'
 type GameMode = 'CLASSIC' | 'SNAKES'
 type BoardPreset = 'MUDAH' | 'NORMAL' | 'SULIT'
+type FinishRule = 'OVERSHOOT' | 'EXACT'
 type LogKind = 'INFO' | 'CLAIM' | 'ATTACK' | 'JOIN' | 'SYSTEM' | 'ERROR'
 
 interface BoardLink { from: number; to: number }
 interface BoardConfig {
-  goal: number; preset: BoardPreset; seed: number
+  goal: number; preset: BoardPreset; seed: number; finishRule?: FinishRule
   ladders: BoardLink[]; snakes: BoardLink[]
 }
 
@@ -116,6 +117,8 @@ interface AnswerResult {
   position?: number
   jump?: number
   finished?: boolean
+  streak?: number
+  bounced?: boolean
 }
 
 interface BoardStanding {
@@ -164,17 +167,19 @@ Postgres (`request_question`, `submit_answer`, `submit_move`) sehingga hanya sat
 dan mutasi bersifat atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh
 `service_role`.
 
-`submitMove` hanya untuk sesi `game_mode = 'SNAKES'`. Hasilnya memuat `delta` (langkah hasil
-undian sesuai kesulitan saat benar, 0 saat salah), `position` (posisi akhir setelah
-ular/tangga), `jump` (efek ular/tangga), dan `finished`. Rentang langkah: Mudah 2–4, Sedang
-5–8, Sulit 9–12. Satu soal hanya bisa dipakai sekali per tim; jawaban salah tidak memindahkan
-bidak. `requestQuestion` mengembalikan `used` untuk menandai soal yang sudah hangus.
+`submitMove` hanya untuk sesi `game_mode = 'SNAKES'`. Hasilnya memuat `delta` (langkah total
+hasil undian), `position` (posisi akhir setelah ular/tangga atau pantulan), `jump` (efek
+ular/tangga atau pantulan), `finished`, `streak`, dan `bounced`. Rentang langkah: Mudah 2-4,
+Sedang 5-8, Sulit 9-12 petak. `finishRule` pada `board_config` menentukan finis: `OVERSHOOT`
+(melewati finis menang) atau `EXACT` (wajib pas; kelebihan mantul mundur). Satu soal hanya
+bisa dipakai sekali per tim; jawaban salah tidak memindahkan bidak.
+`requestQuestion` mengembalikan `used` untuk menandai soal yang sudah hangus.
 
 ## 2. Server Actions
 
 | Action | Input | Output |
 | :--- | :--- | :--- |
-| `createSession` | `{ groupId, durationMinutes?, mode?, boardPreset?, boardGoal? }` | `{ code: string }` |
+| `createSession` | `{ groupId, durationMinutes?, mode?, boardPreset?, boardGoal?, finishRule? }` | `{ code: string }` |
 | `listSessions` | — | `Session[]` |
 | `listQuestionGroups` | — | `QuestionGroupSummary[]` |
 | `listGroupQuestions` | `groupId: string` | `Question[]` |

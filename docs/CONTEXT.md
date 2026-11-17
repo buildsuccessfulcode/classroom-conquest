@@ -29,11 +29,15 @@ untuk mengumpulkan poin, papan proyektor realtime.
   klasik. Siswa memilih avatar SVG saat join. Langkah mengikuti kesulitan: Mudah 2–4,
   Sedang 5–8, Sulit 9–12 petak; server mengundi saat jawaban benar dan UI menampilkan
   animasi dua dadu sebelum bidak bergerak. Jawaban salah membuat bidak tetap dan soal
-  hangus. Ular/tangga aktif hanya bila bidak berhenti tepat di petaknya. Tim pertama yang
-  mencapai finis memenangkan sesi; bila waktu habis tanpa finis, tim dengan petak terjauh
-  menang (tie-break: lebih dulu mencapai petak itu, lalu nama). Jumlah soal minimal 60%
-  dari panjang papan (papan 30 butuh minimal 18 soal); pilihan guru (30/50/100) dibatasi
-  bila terlalu panjang, dengan papan minimum 10 petak.
+  hangus. Ular/tangga aktif hanya bila bidak berhenti tepat di petaknya. Komposisi papan
+  memakai kepadatan tetap per ukuran
+  (30/50/100), rasio tangga/ular per preset, span berskala, zona ular, tangga comeback, dan
+  net-forward guard. Guru memilih aturan finis `OVERSHOOT` (lewat finis menang) atau `EXACT`
+  (wajib pas; kelebihan mantul mundur). Tim pertama yang mencapai finis memenangkan sesi;
+  bila waktu habis tanpa finis, tim dengan petak terjauh menang (tie-break: lebih dulu
+  mencapai petak itu, lalu nama). Jumlah soal minimal 50% dari panjang papan (papan 30 butuh
+  minimal 15 soal); pilihan guru (30/50/100) dibatasi bila terlalu panjang, dengan papan
+  minimum 10 petak.
 
 ## Stack & Konvensi
 
@@ -56,11 +60,12 @@ components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, fo
                        SnakesBoard, BoardStandings, SnakesQuestionGrid, DiceRoll,
                        Avatar, AvatarPicker, QuestionBankImporter, QuestionGenerator,
                        AiSettingsPanel, QuestionGroupList, Skeleton,
-                       RuntimeOptimizations
+                       PressureBanner, RuntimeOptimizations
 hooks/useGameState.ts  state + realtime Broadcast + delta + rekonsiliasi
 hooks/useServerNow.ts  clock global bersama (offset server)
 hooks/useLocalStorage.ts  useSyncExternalStore untuk localStorage
-lib/game.ts            leaderboard, validasi jawaban, poin, timer, logika papan
+lib/game.ts            leaderboard, validasi jawaban, poin, timer, logika papan,
+                       komposisi ular/tangga, aturan finis
 lib/avatars.ts         daftar avatar SVG (tanpa emoji)
 lib/clock.ts           offset waktu server (serverNow)
 lib/feedback.ts        suara WebAudio + haptic lokal
@@ -80,8 +85,9 @@ plans/                 rencana
 ## Tabel Penting
 
 - `question_groups`: group bank soal (`name` unik, `subject`).
-- `sessions` (tanpa grid_size) dengan `game_mode` (`CLASSIC`/`SNAKES`) + `board_config`;
-  `teams` dengan `avatar`, `position`, `finished_at`; `questions` (ber-`group_id`).
+- `sessions` (tanpa grid_size) dengan `game_mode` (`CLASSIC`/`SNAKES`) + `board_config`
+  (`goal`, `preset`, `seed`, `finishRule`, `ladders`, `snakes`); `teams` dengan `avatar`,
+  `position`, `finished_at`; `questions` (ber-`group_id`).
 - `session_questions`: snapshot nomor soal per sesi (`slot_number`, `question_id`).
 - `answers`: hanya jawaban **benar** mode klasik (`team_id`, `slot_number`, `points`, `answered_at`).
 - `moves`: riwayat langkah mode Ular Tangga (satu baris per soal per tim); sumber kebenaran

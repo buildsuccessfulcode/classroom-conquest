@@ -5,6 +5,7 @@ import type {
   BoardPreset,
   BoardStanding,
   Difficulty,
+  FinishRule,
   LeaderboardEntry,
   Move,
   Team,
@@ -18,7 +19,7 @@ export const SNAKES_STEP_RANGES: Record<
   MEDIUM: { min: 5, max: 8 },
   HARD: { min: 9, max: 12 },
 };
-export const MIN_QUESTIONS_RATIO = 0.6;
+export const MIN_QUESTIONS_RATIO = 0.5;
 export const MIN_BOARD_GOAL = 10;
 export const BOARD_TILE_OPTIONS = [30, 50, 100] as const;
 
@@ -179,6 +180,18 @@ export function stepsForDifficulty(
   return min + Math.floor(random() * (max - min + 1));
 }
 
+export function teamStreak(moves: Move[], teamId: string): number {
+  const teamMoves = moves
+    .filter((move) => move.team_id === teamId)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  let streak = 0;
+  for (let index = teamMoves.length - 1; index >= 0; index -= 1) {
+    if (!teamMoves[index].correct) break;
+    streak += 1;
+  }
+  return streak;
+}
+
 export function minQuestionsForBoard(): number {
   return Math.ceil(MIN_BOARD_GOAL * MIN_QUESTIONS_RATIO);
 }
@@ -199,109 +212,294 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function linkCounts(goal: number, preset: BoardPreset): {
+interface LinkTargets {
   ladders: number;
   snakes: number;
-} {
-  const base = goal >= 90 ? 8 : goal >= 40 ? 6 : 4;
-  const ladderAdjust = preset === "MUDAH" ? 2 : preset === "SULIT" ? -1 : 0;
-  const snakeAdjust = preset === "MUDAH" ? -1 : preset === "SULIT" ? 2 : 0;
-  return {
-    ladders: Math.max(2, base + ladderAdjust),
-    snakes: Math.max(2, base - 2 + snakeAdjust),
+}
+
+export function boardLinkTargets(
+  goal: number,
+  preset: BoardPreset,
+): LinkTargets {
+  const safeGoal = Math.max(MIN_BOARD_GOAL, Math.min(100, Math.round(goal)));
+  const pairs = Math.max(2, Math.round(safeGoal / 12));
+  let ladders = pairs + 1;
+  let snakes = pairs;
+  if (preset === "MUDAH") {
+    ladders = pairs + 2;
+    snakes = Math.max(1, pairs - 1);
+  } else if (preset === "SULIT") {
+    ladders = pairs;
+    snakes = pairs + 1;
+  }
+  const maxTotal = Math.max(2, Math.floor(safeGoal * 0.25));
+  while (ladders + snakes > maxTotal) {
+    if (snakes > 1 && snakes >= ladders) snakes -= 1;
+    else if (ladders > 1) ladders -= 1;
+    else if (snakes > 0) snakes -= 1;
+    else break;
+  }
+  return { ladders, snakes };
+}
+
+function boardSpanRange(
+  goal: number,
+  preset: BoardPreset,
+  kind: "ladder" | "snake",
+): { min: number; max: number } {
+  const safeGoal = Math.max(MIN_BOARD_GOAL, Math.min(100, Math.round(goal)));
+  const minBase =
+    safeGoal <= 15 ? 2 : Math.max(3, Math.round(safeGoal * 0.08));
+  const maxBase = Math.max(minBase + 1, Math.round(safeGoal * 0.16));
+  const factor =
+    kind === "ladder"
+      ? preset === "SULIT"
+        ? 1.25
+        : 1
+      : preset === "MUDAH"
+        ? 0.8
+        : preset === "SULIT"
+          ? 0.75
+          : 1;
+  const min = Math.max(2, Math.round(minBase * factor));
+  const max = Math.max(min + 1, Math.round(maxBase * factor));
+  return { min, max };
+}
+
+function shuffleInPlace<T>(items: T[], rng: () => number): T[] {
+  for (let index = items.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(rng() * (index + 1));
+    [items[index], items[swap]] = [items[swap], items[index]];
+  }
+  return items;
+}
+
+function buildBoardOnce(input: {
+  goal: number;
+  preset: BoardPreset;
+  seed: number;
+  finishRule: FinishRule;
+  allowToOverlap: boolean;
+}): BoardConfig {
+  const { goal, preset, seed, finishRule, allowToOverlap } = input;
+  const rng = mulberry32(seed);
+  const target = boardLinkTargets(goal, preset);
+  const ladders: BoardLink[] = [];
+  const snakes: BoardLink[] = [];
+  const usedFrom = new Set<number>();
+  const usedTo = new Set<number>();
+
+  const canUseTo = (value: number): boolean =>
+    !usedFrom.has(value) && (allowToOverlap || !usedTo.has(value));
+
+  const candidates = (min: number, max: number): number[] => {
+    const list: number[] = [];
+    for (let value = Math.max(2, min); value <= max; value += 1) {
+      list.push(value);
+    }
+    return shuffleInPlace(list, rng);
   };
+
+  const addLink = (
+    list: BoardLink[],
+    kind: "ladder" | "snake",
+    from: number,
+  ): boolean => {
+    const maxFrom = kind === "snake" && preset === "SULIT" ? goal - 1 : goal - 2;
+    if (from < 2 || from > maxFrom) return false;
+    if (usedFrom.has(from) || usedTo.has(from)) return false;
+    const { min, max } = boardSpanRange(goal, preset, kind);
+    const spans: number[] = [];
+    for (let span = min; span <= max; span += 1) spans.push(span);
+    shuffleInPlace(spans, rng);
+    for (const span of spans) {
+      const to =
+        kind === "ladder"
+          ? Math.min(goal - 1, from + span)
+          : Math.max(2, from - span);
+      if (kind === "ladder" && to < from + 2) continue;
+      if (kind === "snake" && to > from - 2) continue;
+      if (!canUseTo(to)) continue;
+      usedFrom.add(from);
+      usedTo.add(to);
+      list.push({ from, to });
+      return true;
+    }
+    return false;
+  };
+
+  const ladderMaxFrom = Math.min(
+    goal - 2,
+    Math.max(2, Math.floor(goal * 0.8)),
+  );
+  const snakeMinFrom = Math.min(
+    goal - 2,
+    Math.max(2, Math.ceil(goal * 0.25)),
+  );
+  const snakeMaxFrom = Math.max(
+    snakeMinFrom,
+    preset === "SULIT" ? goal - 1 : goal - 2,
+  );
+
+  if (target.ladders > 0) {
+    const comeback = candidates(
+      Math.ceil(goal * 0.6),
+      Math.min(ladderMaxFrom, Math.max(2, Math.floor(goal * 0.8))),
+    );
+    for (const from of comeback) {
+      if (addLink(ladders, "ladder", from)) break;
+    }
+  }
+  for (const from of candidates(2, ladderMaxFrom)) {
+    if (ladders.length >= target.ladders) break;
+    addLink(ladders, "ladder", from);
+  }
+
+  if (target.snakes > 0) {
+    const middle = candidates(
+      Math.ceil(goal * 0.4),
+      Math.min(snakeMaxFrom, Math.max(2, Math.floor(goal * 0.7))),
+    );
+    for (const from of middle) {
+      if (addLink(snakes, "snake", from)) break;
+    }
+  }
+  for (const from of candidates(snakeMinFrom, snakeMaxFrom)) {
+    if (snakes.length >= target.snakes) break;
+    addLink(snakes, "snake", from);
+  }
+
+  ladders.sort((a, b) => a.from - b.from);
+  snakes.sort((a, b) => a.from - b.from);
+  return { goal, preset, seed, finishRule, ladders, snakes };
+}
+
+function linkSpan(link: BoardLink): number {
+  return Math.abs(link.to - link.from);
+}
+
+function netSpanGap(config: BoardConfig): number {
+  const ladderSpan = config.ladders.reduce(
+    (total, link) => total + linkSpan(link),
+    0,
+  );
+  const snakeSpan = config.snakes.reduce(
+    (total, link) => total + linkSpan(link),
+    0,
+  );
+  return ladderSpan - snakeSpan;
 }
 
 export function buildBoardConfig(input: {
   goal: number;
   preset: BoardPreset;
   seed: number;
+  finishRule?: FinishRule;
 }): BoardConfig {
   const goal = Math.max(
     MIN_BOARD_GOAL,
     Math.min(100, Math.round(input.goal)),
   );
-  const rng = mulberry32(input.seed);
-  const used = new Set<number>();
-  const target = linkCounts(goal, input.preset);
-  const ladders: BoardLink[] = [];
-  const snakes: BoardLink[] = [];
-
-  const pickUnique = (min: number, max: number): number | null => {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const value = min + Math.floor(rng() * (max - min + 1));
-      if (!used.has(value)) {
-        used.add(value);
-        return value;
-      }
-    }
-    return null;
-  };
-
-  for (let index = 0; index < target.ladders; index += 1) {
-    const from = pickUnique(2, goal - 2);
-    if (from === null) break;
-    const span = 4 + Math.floor(rng() * 9);
-    const to = Math.min(goal - 1, from + span);
-    if (to <= from + 1) {
-      used.delete(from);
+  const finishRule: FinishRule =
+    input.finishRule === "EXACT" ? "EXACT" : "OVERSHOOT";
+  const target = boardLinkTargets(goal, input.preset);
+  let best: BoardConfig | null = null;
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const seed = (input.seed + attempt * 7919) >>> 0;
+    const config = buildBoardOnce({
+      goal,
+      preset: input.preset,
+      seed,
+      finishRule,
+      allowToOverlap: attempt >= 12,
+    });
+    if (
+      config.ladders.length !== target.ladders ||
+      config.snakes.length !== target.snakes
+    ) {
       continue;
     }
-    used.add(to);
-    ladders.push({ from, to });
+    if (!best || netSpanGap(config) > netSpanGap(best)) best = config;
+    if (netSpanGap(config) >= 0) return config;
   }
-
-  for (let index = 0; index < target.snakes; index += 1) {
-    const from = pickUnique(3, goal - 1);
-    if (from === null) break;
-    const span = 4 + Math.floor(rng() * 9);
-    const to = Math.max(1, from - span);
-    if (to >= from - 1) {
-      used.delete(from);
-      continue;
-    }
-    used.add(to);
-    snakes.push({ from, to });
-  }
-
-  ladders.sort((a, b) => a.from - b.from);
-  snakes.sort((a, b) => a.from - b.from);
-  return { goal, preset: input.preset, seed: input.seed, ladders, snakes };
+  if (best) return best;
+  return buildBoardOnce({
+    goal,
+    preset: input.preset,
+    seed: input.seed,
+    finishRule,
+    allowToOverlap: true,
+  });
 }
 
 export function resolveBoardMove(
   from: number,
   delta: number,
   config: BoardConfig,
-): { raw: number; position: number; jump: number; finished: boolean } {
+): {
+  raw: number;
+  position: number;
+  jump: number;
+  finished: boolean;
+  bounced: boolean;
+} {
   const goal = Math.max(1, config.goal);
   const start = Math.min(goal, Math.max(0, from));
-  const raw = Math.min(goal, Math.max(0, start + delta));
+  const finishRule = config.finishRule ?? "OVERSHOOT";
   if (delta <= 0) {
-    return { raw, position: raw, jump: 0, finished: raw >= goal };
+    const position = Math.min(goal, Math.max(0, start + delta));
+    return {
+      raw: position,
+      position,
+      jump: 0,
+      finished: position >= goal,
+      bounced: false,
+    };
   }
-  if (raw >= goal) {
-    return { raw, position: goal, jump: 0, finished: true };
+  const landing = start + delta;
+  if (landing > goal) {
+    if (finishRule === "EXACT") {
+      const position = Math.max(0, 2 * goal - landing);
+      return {
+        raw: goal,
+        position,
+        jump: position - goal,
+        finished: false,
+        bounced: true,
+      };
+    }
+    return { raw: goal, position: goal, jump: 0, finished: true, bounced: false };
   }
-  const ladder = config.ladders.find((link) => link.from === raw);
+  if (landing === goal) {
+    return { raw: goal, position: goal, jump: 0, finished: true, bounced: false };
+  }
+  const ladder = config.ladders.find((link) => link.from === landing);
   if (ladder) {
     return {
-      raw,
+      raw: landing,
       position: ladder.to,
-      jump: ladder.to - raw,
+      jump: ladder.to - landing,
       finished: false,
+      bounced: false,
     };
   }
-  const snake = config.snakes.find((link) => link.from === raw);
+  const snake = config.snakes.find((link) => link.from === landing);
   if (snake) {
     return {
-      raw,
+      raw: landing,
       position: snake.to,
-      jump: snake.to - raw,
+      jump: snake.to - landing,
       finished: false,
+      bounced: false,
     };
   }
-  return { raw, position: raw, jump: 0, finished: false };
+  return {
+    raw: landing,
+    position: landing,
+    jump: 0,
+    finished: false,
+    bounced: false,
+  };
 }
 
 export const WALK_STEP_MS = 220;

@@ -7,6 +7,7 @@ import ActivityLog from "@/components/ActivityLog";
 import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
 import Leaderboard from "@/components/Leaderboard";
+import PressureBanner from "@/components/PressureBanner";
 import SnakesBoard from "@/components/SnakesBoard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
@@ -170,7 +171,11 @@ function DisplayInner() {
               <p className="flex items-center gap-1.5 font-semibold text-ink-soft">
                 <UsersIcon className="h-4 w-4 shrink-0" />
                 {isSnakes && boardConfig
-                  ? `${boardConfig.goal} petak`
+                  ? `${boardConfig.goal} petak · ${
+                      boardConfig.finishRule === "EXACT"
+                        ? "finis wajib pas"
+                        : "lewat finis menang"
+                    }`
                   : `${totalSlots} soal`}{" "}
                 ·{" "}
                 {STATUS_LABEL[state.session.status] ?? state.session.status}
@@ -214,6 +219,14 @@ function DisplayInner() {
       </header>
 
       {state ? <TimeWarningBanner session={state.session} /> : null}
+      {state && isSnakes && boardConfig ? (
+        <PressureBanner
+          teams={state.teams}
+          moves={state.moves}
+          config={boardConfig}
+          status={state.session.status}
+        />
+      ) : null}
 
       {loading && !state ? (
         <div className="grid flex-1 gap-5 lg:grid-cols-[1.6fr_1fr]">

@@ -44,9 +44,13 @@
   5–8, Sulit 9–12 petak; server mengundi saat jawaban benar dan klien menampilkan animasi
   dua dadu sebelum memperbarui papan. Jawaban salah membuat bidak tetap dan soal hangus
   (satu baris `moves` per soal per tim). Posisi disimpan di `teams.position`; riwayat di
-  `moves`. Ular/tangga aktif hanya saat bidak berhenti tepat di petaknya. Jumlah soal
-  minimal 60% dari panjang papan dan papan minimal 10 petak. Finis pertama mengakhiri
-  sesi; bila timer habis tanpa finis, petak terjauh menang.
+  `moves`. Ular/tangga aktif hanya saat bidak berhenti tepat di petaknya. Komposisi
+  tangga/ular memakai kepadatan tetap
+  per ukuran papan (30/50/100) dengan rasio per preset, span berskala papan, zona ular,
+  jaminan tangga comeback, dan net-forward guard. Guru memilih `finishRule`:
+  `OVERSHOOT` (melewati finis menang) atau `EXACT` (wajib pas; kelebihan mantul mundur).
+  Jumlah soal minimal 50% dari panjang papan dan papan minimal 10 petak. Finis pertama
+  mengakhiri sesi; bila timer habis tanpa finis, petak terjauh menang.
   Papan diacak deterministik saat sesi dibuat (`board_config`) agar sama di semua perangkat.
 
 ## 3. Dual Mode (Supabase / Demo)

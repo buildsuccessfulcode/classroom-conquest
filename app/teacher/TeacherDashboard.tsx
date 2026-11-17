@@ -41,9 +41,14 @@ import {
   startSession,
 } from "@/lib/backend";
 import { formatDateTime } from "@/lib/format";
-import { goalFromQuestionCount, minQuestionsForBoard } from "@/lib/game";
+import {
+  boardLinkTargets,
+  goalFromQuestionCount,
+  minQuestionsForBoard,
+} from "@/lib/game";
 import type {
   BoardPreset,
+  FinishRule,
   GameMode,
   QuestionGroupSummary,
   Session,
@@ -89,6 +94,7 @@ export default function TeacherDashboard() {
   const [mode, setMode] = useState<GameMode>("CLASSIC");
   const [boardPreset, setBoardPreset] = useState<BoardPreset>("NORMAL");
   const [boardGoal, setBoardGoal] = useState("auto");
+  const [finishRule, setFinishRule] = useState<FinishRule>("OVERSHOOT");
   const [groups, setGroups] = useState<QuestionGroupSummary[]>([]);
   const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [groupId, setGroupId] = useState("");
@@ -101,6 +107,14 @@ export default function TeacherDashboard() {
   const selectedGroup = groups.find((group) => group.id === groupId);
   const selectedQuestionCount = selectedGroup?.question_count ?? 0;
   const maxBoardForGroup = goalFromQuestionCount(selectedQuestionCount);
+  const previewGoal =
+    boardGoal !== "auto" && Number(boardGoal)
+      ? Math.min(Number(boardGoal), maxBoardForGroup)
+      : maxBoardForGroup;
+  const linkPreview =
+    selectedQuestionCount >= minQuestionsForBoard()
+      ? boardLinkTargets(previewGoal, boardPreset)
+      : null;
 
   const { state, loading, error: stateError, reload } = useGameState(selectedCode);
 
@@ -164,6 +178,7 @@ export default function TeacherDashboard() {
           mode === "SNAKES" && boardGoal !== "auto"
             ? Number(boardGoal)
             : undefined,
+        finishRule: mode === "SNAKES" ? finishRule : undefined,
       });
       setSelectedCode(code);
       setMessage(`Sesi ${code} berhasil dibuat.`);
@@ -345,7 +360,8 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
                 {mode === "SNAKES" ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
                     <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
                       Kesulitan Papan
                       <select
@@ -373,7 +389,46 @@ export default function TeacherDashboard() {
                         <option value="100">100 petak</option>
                       </select>
                     </label>
-                  </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
+                      Aturan Finis
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            [
+                              "OVERSHOOT",
+                              "Lewat finis = menang",
+                              "Cepat dan tegas",
+                            ],
+                            [
+                              "EXACT",
+                              "Finis Sempurna",
+                              "Wajib pas, kelebihan mantul",
+                            ],
+                          ] as const
+                        ).map(([value, label, hint]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setFinishRule(value)}
+                            className={[
+                              "flex flex-col items-start gap-0.5 rounded-2xl border-2 px-3 py-2 text-left transition",
+                              finishRule === value
+                                ? "border-ocean bg-ocean-soft"
+                                : "border-cloud bg-white hover:border-ocean/60",
+                            ].join(" ")}
+                          >
+                            <span className="text-sm font-extrabold text-ink">
+                              {label}
+                            </span>
+                            <span className="text-[11px] font-semibold text-ink-soft">
+                              {hint}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
                 ) : null}
                 <label className="flex flex-col gap-1.5 text-sm font-extrabold text-ink">
                   Durasi (menit)
@@ -388,7 +443,7 @@ export default function TeacherDashboard() {
                 </label>
                 <p className="text-xs font-semibold text-ink-soft">
                   {mode === "SNAKES"
-                    ? "Langkah: soal Mudah 2-4, Sedang 5-8, Sulit 9-12 petak. Jumlah soal minimal 60% dari panjang papan (contoh: papan 30 butuh minimal 18 soal). Papan otomatis dan pilihan manual yang terlalu panjang akan dikoreksi."
+                    ? "Langkah: soal Mudah 2-4, Sedang 5-8, Sulit 9-12 petak. Jumlah soal minimal 50% dari panjang papan. Komposisi tangga/ular mengikuti preset; mode Finis Sempurna bisa memperpanjang sesi."
                     : "Nomor soal mengikuti seluruh soal dalam group, dibuat otomatis saat sesi dibuat."}
                 </p>
                 {mode === "SNAKES" && groupId ? (
@@ -400,7 +455,10 @@ export default function TeacherDashboard() {
                   ) : (
                     <p className="rounded-2xl bg-grape-soft px-3 py-2 text-xs font-bold text-grape-dark">
                       Dengan {selectedQuestionCount} soal, papan maksimal{" "}
-                      {maxBoardForGroup} petak (jumlah soal = 60% bidang).
+                      {maxBoardForGroup} petak (jumlah soal = 50% bidang).
+                      {linkPreview
+                        ? ` Komposisi ${previewGoal} petak: ${linkPreview.ladders} tangga, ${linkPreview.snakes} ular.`
+                        : ""}
                     </p>
                   )
                 ) : null}

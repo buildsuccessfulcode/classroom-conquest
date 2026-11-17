@@ -20,7 +20,7 @@ Satu sesi permainan kelas.
 | `is_active` | `boolean` | `true` selama sesi berjalan |
 | `status` | `varchar(20)` | `LOBBY` / `PLAYING` / `ENDED` |
 | `game_mode` | `varchar(10)` | `CLASSIC` (default) / `SNAKES` |
-| `board_config` | `jsonb` | Konfigurasi papan Ular Tangga: `{ goal, preset, seed, ladders, snakes }` |
+| `board_config` | `jsonb` | Konfigurasi papan Ular Tangga: `{ goal, preset, seed, finishRule, ladders, snakes }` (`finishRule`: `OVERSHOOT`/`EXACT`; sesi lama tanpa field ini dianggap `OVERSHOOT`) |
 | `duration_minutes` | `int` | 5–120, default 30 |
 | `started_at` | `timestamptz` | Diisi saat sesi dimulai |
 | `ended_at` | `timestamptz` | Diisi saat sesi diakhiri |
@@ -188,7 +188,7 @@ Fungsi `broadcast_game_change()` dan `normalize_answer()` dibuat di skema. Trigg
 | `normalize_answer(text)` | Normalisasi jawaban (identik dengan `lib/game.ts`) |
 | `request_question(code, team_id, slot)` | Ambil soal + `solved` + `wrong_attempts` dalam satu round-trip |
 | `submit_answer(code, team_id, slot, answer)` | Validasi + `insert answers` + `score = score + gained` + log, atomik |
-| `submit_move(code, team_id, slot, answer)` | Validasi + hitung langkah + ular/tangga + `insert moves` + update posisi/finis + log, atomik |
+| `submit_move(code, team_id, slot, answer)` | Validasi + hitung langkah + ular/tangga/pantulan finis + `insert moves` + update posisi/finis + log, atomik |
 | `broadcast_game_change()` | Trigger Broadcast |
 
 `submit_answer` mengunci baris tim (`for update`) sehingga penambahan skor tidak lagi

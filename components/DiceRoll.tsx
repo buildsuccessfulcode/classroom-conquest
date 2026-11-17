@@ -63,9 +63,15 @@ function DieFace({ value, rolling }: { value: number; rolling: boolean }) {
 export default function DiceRoll({
   value,
   difficulty,
+  bounced = false,
+  finished = false,
+  position,
 }: {
   value: number;
   difficulty: Difficulty;
+  bounced?: boolean;
+  finished?: boolean;
+  position?: number;
 }) {
   const total = Math.max(2, Math.min(12, value || 0));
   const [dice, setDice] = useState<[number, number]>([1, 1]);
@@ -107,11 +113,21 @@ export default function DiceRoll({
         </div>
         <div>
           <p className="cc-display text-2xl font-extrabold text-ink">
-            {settled ? `Maju ${total} petak!` : "Dadu berputar..."}
+            {settled
+              ? bounced
+                ? `Langkah ${total} petak, lalu mantul!`
+                : finished
+                  ? `Langkah ${total} petak: FINIS!`
+                  : `Maju ${total} petak!`
+              : "Dadu berputar..."}
           </p>
           <p className="mt-1 text-sm font-bold text-ink-soft">
             {settled
-              ? "Bidak bergerak sesuai hasil dadu."
+              ? bounced
+                ? `Melewati finis, bidak berhenti di petak ${position ?? "-"}.`
+                : finished
+                  ? "Bidak mencapai petak finis."
+                  : "Bidak bergerak sesuai hasil dadu."
               : "Tunggu dadu berhenti."}
           </p>
         </div>

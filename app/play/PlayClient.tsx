@@ -12,6 +12,7 @@ import DiceRoll, { DICE_ROLL_MS } from "@/components/DiceRoll";
 import Leaderboard from "@/components/Leaderboard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
+import PressureBanner from "@/components/PressureBanner";
 import QuestionBoard from "@/components/QuestionBoard";
 import QuestionCard from "@/components/QuestionCard";
 import Skeleton from "@/components/Skeleton";
@@ -87,6 +88,9 @@ interface Celebration {
 interface DiceRollState {
   value: number;
   difficulty: Difficulty;
+  bounced: boolean;
+  finished: boolean;
+  position: number;
 }
 
 export default function PlayClient() {
@@ -243,6 +247,10 @@ function PlayInner() {
   const myStanding = standings.find(
     (entry) => entry.team.id === identity?.teamId,
   );
+  const remainingTiles = boardConfig
+    ? Math.max(0, boardConfig.goal - (myTeam?.position ?? 0))
+    : 0;
+  const exactFinish = boardConfig?.finishRule === "EXACT";
 
   const handleJoin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -426,14 +434,20 @@ function PlayInner() {
           const feedback: Celebration = {
             correct: result.correct,
             gained: result.delta ?? 0,
-            streak: 0,
+            streak: result.streak ?? 0,
             badge: null,
             levelUp: false,
             level: 1,
             message: result.message,
           };
           if (result.correct) {
-            setDiceRoll({ value: result.delta ?? 0, difficulty });
+            setDiceRoll({
+              value: result.delta ?? 0,
+              difficulty,
+              bounced: result.bounced ?? false,
+              finished: result.finished ?? false,
+              position: result.position ?? 0,
+            });
             haptic([10, 30, 10]);
             const reloadPromise = reload();
             await new Promise((resolve) =>
@@ -718,6 +732,14 @@ function PlayInner() {
       </div>
 
       <TimeWarningBanner session={state.session} />
+      {isSnakes && boardConfig ? (
+        <PressureBanner
+          teams={state.teams}
+          moves={state.moves}
+          config={boardConfig}
+          status={state.session.status}
+        />
+      ) : null}
 
       {status === "ENDED" ? (
         <section className="cc-card flex flex-col items-center gap-3 overflow-hidden p-6 text-center">
@@ -795,6 +817,7 @@ function PlayInner() {
               <p className="mt-1 text-sm font-bold text-ink-soft">
                 Posisi {myTeam?.position ?? 0}/{boardConfig?.goal ?? "-"} ·
                 Peringkat {myStanding ? `#${myStanding.rank}` : "-"}
+                {exactFinish ? ` · Sisa ${remainingTiles} petak (wajib pas)` : ""}
               </p>
               <div className="mt-2 h-3 overflow-hidden rounded-full bg-cloud">
                 <div
@@ -910,11 +933,19 @@ function PlayInner() {
                   {usedSlots.size}/{state.slotInfo.length} dipakai
                 </span>
               </div>
+              {exactFinish ? (
+                <p className="mb-3 rounded-2xl bg-grape-soft px-3 py-2 text-xs font-bold text-grape-dark">
+                  Finis sempurna: sisa {remainingTiles} petak. Pilih soal yang
+                  rentang langkahnya bisa mendarat pas; kelebihan langkah akan
+                  mantul mundur.
+                </p>
+              ) : null}
               <SnakesQuestionGrid
                 slotInfo={state.slotInfo}
                 usedSlots={usedSlots}
                 disabled={busy}
                 loadingSlot={loadingSlot}
+                exactTarget={exactFinish ? remainingTiles : null}
                 onSelect={(slotNumber) => void handleSelect(slotNumber)}
               />
             </section>
@@ -1093,7 +1124,13 @@ function PlayInner() {
       ) : null}
 
       {diceRoll ? (
-        <DiceRoll value={diceRoll.value} difficulty={diceRoll.difficulty} />
+        <DiceRoll
+          value={diceRoll.value}
+          difficulty={diceRoll.difficulty}
+          bounced={diceRoll.bounced}
+          finished={diceRoll.finished}
+          position={diceRoll.position}
+        />
       ) : null}
 
       {celebration ? (

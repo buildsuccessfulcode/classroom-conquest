@@ -79,11 +79,12 @@ Normalisasi jawaban: huruf kecil, rapikan spasi ganda, buang tanda baca tepi.
 ## 8. Mode Ular Tangga (opsional)
 
 1. Guru memilih mode **Ular Tangga** saat membuat sesi, beserta preset kesulitan papan
-   (Mudah/Normal/Sulit) dan ukuran papan (Otomatis/30/50/100 petak). Jumlah soal minimal
-   **60% dari panjang papan** (contoh: papan 30 petak butuh minimal 18 soal). Ukuran otomatis
-   mengikuti aturan tersebut; pilihan manual yang terlalu panjang dikoreksi. Bila soal
-   kurang dari 6 (syarat papan minimum 10 petak), sesi Ular Tangga ditolak dan guru diminta
-   menambah soal atau memakai mode Klasik.
+   (Mudah/Normal/Sulit), ukuran papan (Otomatis/30/50/100 petak), dan **aturan finis**
+   (`Lewat finis = menang` atau `Finis Sempurna`). Jumlah soal minimal **50% dari panjang
+   papan** (contoh: papan 30 petak butuh minimal 15 soal). Ukuran otomatis mengikuti aturan
+   tersebut; pilihan manual yang terlalu panjang dikoreksi. Bila soal kurang dari 5 (syarat
+   papan minimum 10 petak), sesi Ular Tangga ditolak dan guru diminta menambah soal atau
+   memakai mode Klasik.
 2. Saat join, siswa memilih **avatar SVG** (hewan). Warna tim tetap dipakai sebagai identitas.
 3. Setiap tim bergerak **bersamaan** dan bebas memilih nomor soal. Satu soal hanya bisa
    dipakai **sekali per tim**.
@@ -95,13 +96,33 @@ Normalisasi jawaban: huruf kecil, rapikan spasi ganda, buang tanda baca tepi.
    bidak naik; jika berhenti **tepat** di kepala ular, bidak turun. Efek tidak berantai dan
    hanya berlaku saat maju.
 6. Jawaban **salah**: bidak **tetap di tempat**, soal hangus, dan tim harus memilih soal lain.
-7. Bidak yang mencapai atau melewati petak finis langsung **menang** dan sesi berakhir.
+7. **Aturan finis** dipilih guru saat membuat sesi:
+   - **Lewat finis = menang**: bidak yang mencapai atau melewati petak finis langsung menang.
+   - **Finis Sempurna**: bidak harus berhenti **tepat** di finis. Jika langkah melewati finis,
+     bidak **mantul mundur** sebesar kelebihan langkah (batas bawah petak 0), tidak menang,
+     dan pantulan tidak memicu ular/tangga.
+   Sesi berakhir saat ada tim yang finis.
 8. Bila timer habis sebelum ada yang finis, juara ditentukan oleh posisi terjauh; jika sama,
    tim yang lebih dulu mencapai posisi tersebut (atau nama tim) diunggulkan.
 9. Guru dapat memantau papan, posisi tim, dan log aktivitas secara realtime di dashboard,
    `/display`, dan `/play`.
 10. **Reset** menghapus `moves`, mengembalikan semua posisi ke 0, dan mengeluarkan peserta
     seperti mode klasik.
+
+### Komposisi papan
+
+Jumlah tautan tetap per ukuran papan; preset mengubah rasio tangga/ular.
+
+| Papan | MUDAH (tangga/ular) | NORMAL | SULIT |
+| :---: | :---: | :---: | :---: |
+| 30 | 5 / 2 | 4 / 3 | 3 / 4 |
+| 50 | 6 / 3 | 5 / 4 | 4 / 5 |
+| 100 | 10 / 7 | 9 / 8 | 8 / 9 |
+
+Panjang lompatan mengikuti ukuran papan (30: 3–5, 50: 4–8, 100: 8–16) dengan penyesuaian
+preset. Kepala ular hanya muncul setelah 25% papan, tangga bisa muncul sampai 80% papan,
+selalu ada satu tangga comeback di zona 60–80%, dan total span tangga tidak lebih kecil dari
+total span ular. Papan diacak deterministik dari `seed` dan disimpan di `board_config`.
 
 ## 9. Parameter yang Mudah Diubah
 
@@ -113,11 +134,14 @@ Semua di `lib/game.ts`:
 - `MAX_ATTEMPTS_PER_SLOT` — batas percobaan salah per nomor per tim (mode klasik).
 - `SNAKES_STEP_RANGES` — rentang langkah per kesulitan (Mudah 2–4, Sedang 5–8, Sulit 9–12).
 - `stepsForDifficulty()` — mengundi langkah sesuai kesulitan.
-- `MIN_QUESTIONS_RATIO` — rasio minimal jumlah soal terhadap panjang papan (0.6).
+- `teamStreak()` — menghitung jawaban benar beruntun untuk umpan balik streak.
+- `MIN_QUESTIONS_RATIO` — rasio minimal jumlah soal terhadap panjang papan (0.5).
 - `MIN_BOARD_GOAL` — panjang papan minimum (10 petak).
 - `goalFromQuestionCount()` / `minQuestionsForBoard()` — ukuran papan dan syarat soal.
 - `BOARD_TILE_OPTIONS` — pilihan ukuran papan Ular Tangga (30/50/100).
-- `buildBoardConfig()` — generasi ular/tangga.
+- `boardLinkTargets()` — jumlah tangga/ular per preset dan ukuran papan.
+- `buildBoardConfig()` — generasi ular/tangga, komposisi, dan `finishRule`.
+- `resolveBoardMove()` — pergerakan, ular/tangga, finis, dan pantulan.
 - `RAPID_FIRE_INTERVAL_MS` — ambang deteksi jawaban terlalu cepat.
 - `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS` — batas laju permintaan per tim.
 

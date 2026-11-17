@@ -11,6 +11,8 @@ export type GameMode = "CLASSIC" | "SNAKES";
 
 export type BoardPreset = "MUDAH" | "NORMAL" | "SULIT";
 
+export type FinishRule = "OVERSHOOT" | "EXACT";
+
 export interface BoardLink {
   from: number;
   to: number;
@@ -20,6 +22,7 @@ export interface BoardConfig {
   goal: number;
   preset: BoardPreset;
   seed: number;
+  finishRule?: FinishRule;
   ladders: BoardLink[];
   snakes: BoardLink[];
 }
@@ -190,6 +193,8 @@ export interface AnswerResult {
   position?: number;
   jump?: number;
   finished?: boolean;
+  streak?: number;
+  bounced?: boolean;
 }
 
 export interface BoardStanding {

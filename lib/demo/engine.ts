@@ -15,6 +15,7 @@ import {
   resolveBoardMove,
   shuffle,
   stepsForDifficulty,
+  teamStreak,
 } from "../game";
 import type {
   ActivityLog,
@@ -22,6 +23,7 @@ import type {
   AnswerResult,
   BoardConfig,
   BoardPreset,
+  FinishRule,
   GameMode,
   GameState,
   JoinTeamResult,
@@ -261,6 +263,7 @@ export async function createSession(input: {
   mode?: GameMode;
   boardPreset?: BoardPreset;
   boardGoal?: number;
+  finishRule?: FinishRule;
 }): Promise<{ code: string }> {
   const db = load();
   const groupId = input.groupId?.trim();
@@ -276,7 +279,7 @@ export async function createSession(input: {
     ).length;
     if (questionCount < minQuestionsForBoard()) {
       throw new Error(
-        `Mode Ular Tangga butuh minimal ${minQuestionsForBoard()} soal (60% dari papan minimum 10 petak). Tambah soal atau gunakan mode Klasik.`,
+        `Mode Ular Tangga butuh minimal ${minQuestionsForBoard()} soal (50% dari papan minimum 10 petak). Tambah soal atau gunakan mode Klasik.`,
       );
     }
     const preset: BoardPreset =
@@ -289,9 +292,12 @@ export async function createSession(input: {
     );
     const safeGoal = goalFromQuestionCount(questionCount);
     const goal = allowedGoal ? Math.min(requested, safeGoal) : safeGoal;
+    const finishRule: FinishRule =
+      input.finishRule === "EXACT" ? "EXACT" : "OVERSHOOT";
     boardConfig = buildBoardConfig({
       goal,
       preset,
+      finishRule,
       seed: Math.floor(Math.random() * 1_000_000_000),
     });
   }
@@ -647,9 +653,11 @@ export async function submitMove(input: {
   const correct = isAnswerCorrect(question, input.answer);
   const points =
     question.points > 0 ? question.points : pointsFor(question.difficulty);
+  const priorStreak = teamStreak(db.moves, team.id);
   const steps = stepsForDifficulty(question.difficulty);
   const delta = correct ? steps : 0;
   const from = team.position ?? 0;
+  const landing = from + delta;
   const resolved = resolveBoardMove(from, delta, config);
   const finished = correct && resolved.finished;
 
@@ -671,16 +679,23 @@ export async function submitMove(input: {
   let message: string;
   if (correct) {
     team.position = resolved.position;
-    message = `Benar! Maju ${steps} petak`;
-    if (finished) {
-      team.finished_at = nowIso();
-      message = "Benar! Bidak mencapai finis.";
-    } else if (resolved.jump > 0) {
-      message = `${message}. Naik tangga ke petak ${resolved.position}`;
-    } else if (resolved.jump < 0) {
-      message = `${message}. Kena ular, turun ke petak ${resolved.position}`;
+    if (finished) team.finished_at = nowIso();
+    if (resolved.bounced) {
+      message = `Benar! Langkah ${delta} petak, melewati finis dan mantul ke petak ${resolved.position}`;
+    } else if (finished) {
+      message =
+        landing === config.goal
+          ? "Benar! Finis sempurna!"
+          : "Benar! Bidak mencapai finis.";
     } else {
-      message = `${message}. Bidak di petak ${resolved.position}`;
+      message = `Benar! Maju ${delta} petak`;
+      if (resolved.jump > 0) {
+        message = `${message}. Naik tangga ke petak ${resolved.position}`;
+      } else if (resolved.jump < 0) {
+        message = `${message}. Kena ular, turun ke petak ${resolved.position}`;
+      } else {
+        message = `${message}. Bidak di petak ${resolved.position}`;
+      }
     }
   } else {
     message = `Jawaban belum tepat. Bidak tetap di petak ${from}, soal hangus.`;
@@ -718,6 +733,8 @@ export async function submitMove(input: {
     position: resolved.position,
     jump: resolved.jump,
     finished,
+    streak: correct ? priorStreak + 1 : 0,
+    bounced: resolved.bounced,
   };
 }
 

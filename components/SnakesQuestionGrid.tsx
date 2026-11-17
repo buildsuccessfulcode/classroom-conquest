@@ -16,12 +16,14 @@ export default function SnakesQuestionGrid({
   onSelect,
   disabled = false,
   loadingSlot = null,
+  exactTarget = null,
 }: {
   slotInfo: SlotInfo[];
   usedSlots: Set<number>;
   onSelect: (slotNumber: number) => void;
   disabled?: boolean;
   loadingSlot?: number | null;
+  exactTarget?: number | null;
 }) {
   if (slotInfo.length === 0) {
     return (
@@ -37,6 +39,11 @@ export default function SnakesQuestionGrid({
         const steps = stepRangeFor(item.difficulty);
         const diff = DIFFICULTY[item.difficulty];
         const loading = loadingSlot === item.slot_number;
+        const canLandExact =
+          !used &&
+          exactTarget != null &&
+          exactTarget >= steps.min &&
+          exactTarget <= steps.max;
         return (
           <button
             key={item.slot_number}
@@ -48,7 +55,9 @@ export default function SnakesQuestionGrid({
               "cc-tile relative flex flex-col items-start gap-1 rounded-2xl border-2 border-b-4 p-3 text-left transition",
               used
                 ? "border-cloud bg-snow text-ink-soft/60"
-                : "border-cloud bg-white hover:border-ocean hover:bg-ocean-soft",
+                : canLandExact
+                  ? "border-grape bg-grape-soft/40 hover:border-grape"
+                  : "border-cloud bg-white hover:border-ocean hover:bg-ocean-soft",
               loading ? "ring-4 ring-ocean/40" : "",
             ].join(" ")}
           >
@@ -68,6 +77,10 @@ export default function SnakesQuestionGrid({
                 <span className="flex items-center gap-1 text-[10px] font-extrabold text-cherry-dark">
                   <LockIcon className="h-3 w-3" />
                   Hangus
+                </span>
+              ) : canLandExact ? (
+                <span className="rounded-full bg-grape px-2 py-0.5 text-[10px] font-extrabold text-white">
+                  Pas
                 </span>
               ) : null}
             </span>

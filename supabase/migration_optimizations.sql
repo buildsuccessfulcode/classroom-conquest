@@ -411,13 +411,17 @@ declare
     v_correct boolean;
     v_points int;
     v_steps int;
+    v_streak int := 0;
     v_delta int;
     v_from int;
     v_goal int;
+    v_finish_rule text;
+    v_landing int;
     v_raw int;
     v_to int;
     v_jump int;
     v_finished boolean := false;
+    v_bounced boolean := false;
     v_link jsonb;
     v_message text;
 begin
@@ -467,6 +471,19 @@ begin
         when v_question.difficulty = 'MEDIUM' then 150
         else 100
     end;
+    select count(*) into v_streak
+        from public.moves m
+        where m.session_id = v_session.id
+          and m.team_id = p_team_id
+          and m.correct
+          and m.created_at > coalesce(
+              (select max(m2.created_at)
+                 from public.moves m2
+                where m2.session_id = v_session.id
+                  and m2.team_id = p_team_id
+                  and not m2.correct),
+              '-infinity'::timestamptz
+          );
     v_steps := case
         when v_question.difficulty = 'HARD' then 9 + floor(random() * 4)::int
         when v_question.difficulty = 'MEDIUM' then 5 + floor(random() * 4)::int
@@ -475,16 +492,32 @@ begin
     v_delta := case when v_correct then v_steps else 0 end;
 
     v_goal := coalesce((v_session.board_config->>'goal')::int, 50);
+    v_finish_rule := coalesce(v_session.board_config->>'finishRule', 'OVERSHOOT');
     v_from := coalesce(v_team.position, 0);
-    v_raw := least(v_goal, greatest(0, v_from + v_delta));
+    v_landing := v_from + v_delta;
+    v_raw := least(v_goal, greatest(0, v_landing));
     v_to := v_raw;
     v_jump := 0;
 
     if v_correct then
-        if v_raw >= v_goal then
+        if v_landing > v_goal then
+            if v_finish_rule = 'EXACT' then
+                v_bounced := true;
+                v_to := greatest(0, 2 * v_goal - v_landing);
+                v_raw := v_goal;
+                v_jump := v_to - v_goal;
+            else
+                v_finished := true;
+                v_to := v_goal;
+                v_raw := v_goal;
+            end if;
+        elsif v_landing = v_goal then
             v_finished := true;
             v_to := v_goal;
+            v_raw := v_goal;
         else
+            v_raw := v_landing;
+            v_to := v_raw;
             v_link := null;
             select value into v_link
                 from jsonb_array_elements(
@@ -524,15 +557,24 @@ begin
                 end
             where id = p_team_id;
 
-        v_message := 'Benar! Maju ' || v_steps || ' petak';
-        if v_finished then
-            v_message := 'Benar! Bidak mencapai finis.';
-        elsif v_jump > 0 then
-            v_message := v_message || '. Naik tangga ke petak ' || v_to;
-        elsif v_jump < 0 then
-            v_message := v_message || '. Kena ular, turun ke petak ' || v_to;
+        if v_bounced then
+            v_message := 'Benar! Langkah ' || v_delta
+                || ' petak, melewati finis dan mantul ke petak ' || v_to;
+        elsif v_finished then
+            if v_landing = v_goal then
+                v_message := 'Benar! Finis sempurna!';
+            else
+                v_message := 'Benar! Bidak mencapai finis.';
+            end if;
         else
-            v_message := v_message || '. Bidak di petak ' || v_to;
+            v_message := 'Benar! Maju ' || v_delta || ' petak';
+            if v_jump > 0 then
+                v_message := v_message || '. Naik tangga ke petak ' || v_to;
+            elsif v_jump < 0 then
+                v_message := v_message || '. Kena ular, turun ke petak ' || v_to;
+            else
+                v_message := v_message || '. Bidak di petak ' || v_to;
+            end if;
         end if;
     else
         v_message := 'Jawaban belum tepat. Bidak tetap di petak '
@@ -572,7 +614,9 @@ begin
         'delta', v_delta,
         'position', v_to,
         'jump', v_jump,
-        'finished', v_finished
+        'finished', v_finished,
+        'streak', case when v_correct then v_streak + 1 else 0 end,
+        'bounced', v_bounced
     );
 end $$;
 

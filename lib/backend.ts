@@ -13,6 +13,7 @@ import type {
   Answer,
   AnswerResult,
   BoardPreset,
+  FinishRule,
   GameMode,
   GameState,
   GeneratedQuestionBank,
@@ -47,6 +48,7 @@ export async function createSession(input: {
   mode?: GameMode;
   boardPreset?: BoardPreset;
   boardGoal?: number;
+  finishRule?: FinishRule;
 }): Promise<{ code: string }> {
   if (isSupabaseConfigured()) return actions.createSession(input);
   return demo.createSession(input);
