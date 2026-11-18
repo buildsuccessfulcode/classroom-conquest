@@ -135,8 +135,6 @@ function PlayInner() {
   const soundOn = soundPref !== "off";
   const prevStatusRef = useRef<string | null>(null);
   const boardRef = useRef<HTMLElement | null>(null);
-  const pendingCelebrationRef = useRef<Celebration | null>(null);
-  const celebrationTimerRef = useRef<number | null>(null);
 
   const { state, loading, error: stateError, reload } = useGameState(
     identity?.sessionCode ?? null,
@@ -332,47 +330,6 @@ function PlayInner() {
     });
   }, []);
 
-  const flushPendingCelebration = useCallback(() => {
-    if (celebrationTimerRef.current !== null) {
-      window.clearTimeout(celebrationTimerRef.current);
-      celebrationTimerRef.current = null;
-    }
-    const pending = pendingCelebrationRef.current;
-    if (!pending) return;
-    pendingCelebrationRef.current = null;
-    setCelebration(pending);
-  }, []);
-
-  const queueCelebration = useCallback(
-    (value: Celebration) => {
-      pendingCelebrationRef.current = value;
-      if (celebrationTimerRef.current !== null) {
-        window.clearTimeout(celebrationTimerRef.current);
-      }
-      celebrationTimerRef.current = window.setTimeout(() => {
-        celebrationTimerRef.current = null;
-        flushPendingCelebration();
-      }, 6000);
-    },
-    [flushPendingCelebration],
-  );
-
-  const handleWalkEnd = useCallback(
-    (teamId: string) => {
-      if (teamId !== identity?.teamId) return;
-      flushPendingCelebration();
-    },
-    [flushPendingCelebration, identity?.teamId],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (celebrationTimerRef.current !== null) {
-        window.clearTimeout(celebrationTimerRef.current);
-      }
-    };
-  }, []);
-
   const handleLeaveRoom = useCallback(() => {
     clear();
     restoredRef.current = false;
@@ -458,7 +415,6 @@ function PlayInner() {
             setDiceRoll(null);
             playFeedback("correct");
             haptic([14, 40, 14]);
-            queueCelebration(feedback);
             window.requestAnimationFrame(focusBoard);
             await reloadPromise;
           } else {
@@ -903,7 +859,6 @@ function PlayInner() {
             moves={state.moves}
             variant="mini"
             highlightTeamId={identity.teamId}
-            onWalkEnd={handleWalkEnd}
           />
         </section>
       ) : null}
@@ -1123,9 +1078,6 @@ function PlayInner() {
         <DiceRoll
           value={diceRoll.value}
           difficulty={diceRoll.difficulty}
-          bounced={diceRoll.bounced}
-          finished={diceRoll.finished}
-          position={diceRoll.position}
           closesAt={diceRoll.closesAt}
         />
       ) : null}
