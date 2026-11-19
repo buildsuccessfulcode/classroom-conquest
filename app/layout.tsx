@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Baloo_2, Nunito } from "next/font/google";
 import RuntimeOptimizations from "@/components/RuntimeOptimizations";
+import { getSupabaseUrl, isSupabaseConfigured } from "@/lib/config";
 import "./globals.css";
 
 const nunito = Nunito({
@@ -22,11 +23,20 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const supabaseUrl = isSupabaseConfigured() ? getSupabaseUrl() : null;
   return (
     <html
       lang="id"
       className={`${nunito.variable} ${baloo.variable} h-full antialiased`}
     >
+      <head>
+        {supabaseUrl ? (
+          <>
+            <link rel="preconnect" href={supabaseUrl} crossOrigin="anonymous" />
+            <link rel="dns-prefetch" href={supabaseUrl} />
+          </>
+        ) : null}
+      </head>
       <body className="min-h-full bg-snow text-ink">
         <RuntimeOptimizations />
         {children}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { Answer, Team } from "@/lib/types";
 import { CheckIcon, LockIcon } from "./icons";
 
@@ -22,7 +22,7 @@ interface QuestionBoardProps {
 
 const SCROLL_THRESHOLD = 48;
 
-export default function QuestionBoard({
+function QuestionBoard({
   totalSlots,
   teams,
   answers,
@@ -213,3 +213,5 @@ export default function QuestionBoard({
     </div>
   );
 }
+
+export default memo(QuestionBoard);

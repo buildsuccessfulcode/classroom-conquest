@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import { formatTime } from "@/lib/format";
 import type { ActivityLog as ActivityLogEntry, LogKind } from "@/lib/types";
 
@@ -17,10 +18,11 @@ interface ActivityLogProps {
   emptyText?: string;
 }
 
-export default function ActivityLog({
+export default memo(function ActivityLog({
   logs,
-  emptyText = "Belum ada aktivitas.",
+  emptyText = "Belum ada aktivitas mencurigakan.",
 }: ActivityLogProps) {
+  const ordered = useMemo(() => [...logs].reverse(), [logs]);
   if (logs.length === 0) {
     return (
       <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
@@ -31,7 +33,7 @@ export default function ActivityLog({
 
   return (
     <ul className="cc-scrollbar flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
-      {[...logs].reverse().map((log) => {
+      {ordered.map((log) => {
         const style = KIND_STYLES[log.kind];
         return (
           <li
@@ -52,4 +54,4 @@ export default function ActivityLog({
       })}
     </ul>
   );
-}
+});

@@ -31,16 +31,19 @@
 3. Jika jawaban **benar**:
    - tercatat di tabel `answers` (sekali saja per nomor per tim),
    - `teams.score += question.points`,
-   - log: `"Tim X menjawab benar nomor 3 (+150)"`,
    - saat nomor dibuka lagi, kunci jawaban ditampilkan ke tim yang sudah menjawab benar nomor
      tersebut atau yang nomornya sudah terkunci (mode belajar).
-4. Jika **salah**: tidak ada penalti, nomor tetap tersedia untuk dicoba lagi, log mencatat
-   percobaan gagal beserta nomornya (`"Tim X menjawab salah nomor 3 (percobaan 1/2)"`).
+4. Jika **salah**: tidak ada penalti, nomor tetap tersedia untuk dicoba lagi. Hitungan percobaan
+   disimpan di `slot_attempts` (bukan log).
 5. **Batas percobaan:** tiap nomor hanya bisa dicoba maksimal `MAX_ATTEMPTS_PER_SLOT` kali
    per tim (default 2). Setelah batas tercapai, nomor **terkunci** untuk tim tersebut dan
    ditandai ikon kunci di papan; nomor tetap bisa dibuka untuk melihat jawaban benar (mode
    belajar), tetapi pengiriman jawaban ditolak di server.
 6. Tim boleh melanjutkan ke nomor lain kapan saja, tanpa harus berurutan.
+
+Log aktivitas guru/proyektor hanya berisi peringatan kecurangan (`ERROR`: meninggalkan tab,
+jawaban benar mencurigakan) dan peristiwa sesi (`SYSTEM`: mulai, selesai, reset, waktu habis,
+pemenang). Jawaban benar/salah biasa tidak dicatat sebagai log.
 
 ## 4. Tipe Soal
 
@@ -107,8 +110,8 @@ Normalisasi jawaban: huruf kecil, rapikan spasi ganda, buang tanda baca tepi.
    Sesi berakhir saat ada tim yang finis.
 8. Bila timer habis sebelum ada yang finis, juara ditentukan oleh posisi terjauh; jika sama,
    tim yang lebih dulu mencapai posisi tersebut (atau nama tim) diunggulkan.
-9. Guru dapat memantau papan, posisi tim, dan log aktivitas secara realtime di dashboard,
-   `/display`, dan `/play`.
+9. Guru dapat memantau papan, posisi tim, dan log pengawasan (kecurangan + peristiwa sesi)
+   secara realtime di dashboard, `/display`, dan `/play`.
 10. **Reset** menghapus `moves`, mengembalikan semua posisi ke 0, dan mengeluarkan peserta
     seperti mode klasik.
 
@@ -150,7 +153,7 @@ Semua di `lib/game.ts`:
 - `RAPID_FIRE_INTERVAL_MS` — ambang deteksi jawaban terlalu cepat.
 - `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS` — batas laju permintaan per tim.
 
-Snapshot soal ada di `ensureSlots()` (`app/actions.ts` dan `lib/demo/engine.ts`).
+Snapshot soal dibuat oleh RPC `create_session` (`supabase/schema.sql`) saat sesi dibuat.
 
 ## 10. Anti-Kecurangan
 
@@ -158,9 +161,9 @@ Snapshot soal ada di `ensureSlots()` (`app/actions.ts` dan `lib/demo/engine.ts`)
 - **Acak opsi & kata** di server agar jawaban tidak mudah dibagikan antar tim.
 - **Deteksi anomali:** jawaban benar setelah hampir mencapai batas percobaan, atau jawaban
   benar beruntun dalam `< RAPID_FIRE_INTERVAL_MS`, dicatat sebagai log `ERROR`
-  (`"[PERINGATAN] ..."`) sehingga tampil merah di panel Aktivitas guru.
-- **Rate limit** permintaan per tim; kelebihan ditolak dengan pesan
-  `"Terlalu banyak permintaan. Tunggu sebentar."`
+  (`"[PERINGATAN] ..."`) sehingga tampil di panel Log Pengawasan guru.
+- **Rate limit** permintaan per tim dengan bucket terpisah (request/jawaban/move/focus);
+  kelebihan ditolak dengan pesan `"Terlalu banyak permintaan. Tunggu sebentar."`
 - **Deteksi meninggalkan tab:** saat sesi `PLAYING`, klien memantau
   `visibilitychange`, `blur`, `focus`, dan `pagehide`. Begitu tim meninggalkan tab, server
   langsung mencatat log `ERROR` `[PERINGATAN] Tim X meninggalkan tab permainan` (muncul realtime

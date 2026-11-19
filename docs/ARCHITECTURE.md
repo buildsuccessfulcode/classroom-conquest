@@ -36,8 +36,9 @@
 ## 2. Konsep Permainan
 
 - Papan berisi **nomor soal 1..N**; N = jumlah seluruh soal mapel saat sesi dimulai.
-- Snapshot nomor dibuat di `session_questions` (`ensureSlots`) saat **Mulai Sesi**.
-- Tiap tim menjawab nomor secara **mandiri**; jawaban benar disimpan di `answers`.
+- Snapshot nomor dibuat di `session_questions` saat **sesi dibuat**.
+- Tiap tim menjawab nomor secara mandiri; jawaban benar disimpan di `answers`.
+- Jawaban salah dicatat di `slot_attempts` (bukan log) dan tidak mengurangi poin.
 - Peringkat dari total poin; tie-break `lastAnsweredAt` (lebih awal unggul).
 - **Mode Ular Tangga** (`game_mode = 'SNAKES'`) berjalan di samping mode klasik: papan petak
   dengan ular/tangga, bidak = avatar tim. Langkah mengikuti kesulitan: Mudah 2–4, Sedang
@@ -65,7 +66,7 @@ Fasad di `lib/backend.ts` mengekspos fungsi yang sama untuk kedua mode:
 
 | Fungsi | Supabase | Demo |
 | :--- | :--- | :--- |
-| `fetchGameState(code)` | Server Action → query Postgres | `demo/engine.ts` baca `localStorage` |
+| `fetchGameState(code, teamId?)` | Server Action → RPC `fetch_game_state` | `demo/engine.ts` baca `localStorage` |
 | `subscribe(id, cb)` | `supabase.channel().on('postgres_changes')` | `BroadcastChannel` + `storage` event |
 | `createSession`, `joinTeam`, `requestQuestion`, `submitAnswer`, dll | Server Action | Engine lokal |
 
@@ -78,28 +79,29 @@ browser (satu perangkat). Untuk kelas nyata (banyak HP), gunakan Supabase.
 Murid klik nomor
   -> backend.requestQuestion(code, teamId, slotNumber)
        Server Action -> RPC request_question: satu round-trip, ambil soal + solved +
-       wrong_attempts, buang correct_answer, acak opsi/kata
+       wrong_attempts dari slot_attempts, buang correct_answer, acak opsi/kata
   -> QuestionCard menampilkan soal (mode jawab, review, atau terkunci)
   -> murid submit
-  -> UI langsung: tutup modal, suara + haptic lokal, state "memeriksa" (optimistis)
+  -> UI langsung: tutup modal, suara + haptic lokal
   -> backend.submitAnswer(...)
        Server Action -> RPC submit_answer: rate limit, tolak bila terkunci, validasi
-       terhadap correct_answer, insert answers + score = score + gained + log, ATOMIK
+       terhadap correct_answer, insert answers + score + upsert slot_attempts, ATOMIK
        (gagal jaringan -> retry otomatis hingga 3x dengan backoff)
   -> Trigger `after insert on answers` -> realtime.send('answer.created') ke game-<id>
-  -> Klien lain menerapkan delta `answers` langsung, lalu rekonsiliasi terkoalesi 200 ms
+  -> Trigger `after insert/update on slot_attempts` -> 'attempt.updated'
+  -> Klien menerapkan delta (dibatched ~80 ms); tanpa full reload per jawaban
 ```
 
 `correct_answer` **tidak pernah** meninggalkan server. `requestQuestion` mengembalikan objek
-`PublicQuestion` (tanpa kunci jawaban). Jumlah percobaan salah dihitung di RPC dari
-`activity_logs` agar tidak memerlukan tabel khusus.
+`PublicQuestion` (tanpa kunci jawaban). Percobaan salah dihitung dari `slot_attempts`, bukan
+parsing teks log.
 
 Mode Ular Tangga memakai jalur tulis terpisah: `submitMove` → RPC `submit_move`. RPC mengunci
 baris tim, memvalidasi jawaban, mengundi langkah sesuai kesulitan, menerapkan ular/tangga (sekali, hanya saat
 maju), menulis `moves`, memperbarui `teams.position`/`finished_at`, dan mengakhiri sesi bila
-finis — semuanya atomik. Trigger `after update on teams` mengirim Broadcast `team.moved` hanya
-saat `position` atau `finished_at` berubah, sehingga mode klasik (yang hanya mengubah `score`)
-tidak terganggu.
+finis — semuanya atomik. Trigger `after insert on moves` mengirim Broadcast `move.created`, dan
+trigger `after update on teams` mengirim `team.moved` hanya saat `position`/`finished_at`
+berubah. Klien memakai `move.created` untuk animasi tanpa fetch ulang.
 
 ## 5. Struktur Kode
 
@@ -108,7 +110,7 @@ app/
   actions.ts          Server Actions ("use server") — satu-satunya jalur tulis Supabase
   layout.tsx          Root layout (+ RuntimeOptimizations)
   page.tsx            Landing (server, force-static)
-  teacher/page.tsx    Cek cookie (server) -> TeacherDashboard (client)
+  teacher/page.tsx    Cek cookie + prefetch sesi/group (server) -> TeacherDashboard (client)
   play/page.tsx       Shell server -> PlayClient (client)
   display/page.tsx    Shell server -> DisplayClient (client)
   rules/page.tsx      Aturan (server, force-static)
@@ -116,13 +118,15 @@ components/            QuestionBoard, Leaderboard, ActivityLog, QuestionCard, fo
                        QuestionBankImporter, QuestionGenerator, AiSettingsPanel,
                        QuestionGroupList, Skeleton, RuntimeOptimizations
 hooks/
-  useGameState.ts     Langganan realtime (Broadcast) + delta + rekonsiliasi + state terpadu
+  useGameState.ts     Langganan realtime + delta batch + rekonsiliasi + state terpadu
   useServerNow.ts     Clock global bersama (satu interval)
   useLocalStorage.ts  useSyncExternalStore untuk localStorage
+  useLiteMode.ts      Status mode ringan (auto + override)
 lib/
   game.ts             Logika murni (leaderboard, validasi, poin, timer)
   clock.ts            Offset waktu server (serverNow)
   feedback.ts         Suara (WebAudio) + haptic lokal
+  lite.ts             Deteksi perangkat lemah + preferensi mode ringan
   questions.ts        Validasi impor bank soal
   ai/prompt.ts        Prompt + response schema Gemini
   ai/gemini.ts        Klien REST Gemini (list model, generate)
@@ -156,18 +160,20 @@ Prinsip: **logika game murni** (`lib/game.ts`) dipisah dari **I/O** (Supabase/de
    `requestQuestion`/`submitAnswer`; tidak perlu job scheduler.
 7. **Next.js 16 async APIs.** `params`, `searchParams`, `cookies()`, `headers()` selalu
    di-`await`. Route handler dinamis secara default.
-8. **Anti-kecurangan tanpa tabel baru.** Batas percobaan per nomor dihitung ulang dari
-   `activity_logs` dengan format pesan stabil (`"... menjawab salah nomor N ..."`). Tidak ada
-   penalti poin, jadi `buildLeaderboard` tetap dari `answers`. Opsi/kata diacak di server.
-   Rate limit memakai `Map` level modul per-instance (best-effort di serverless).
+8. **Anti-kecurangan dengan `slot_attempts`.** Batas percobaan per nomor disimpan di tabel
+   `slot_attempts`; tidak ada penalti poin. Opsi/kata diacak di server. Anomali (keluar tab,
+   jawaban benar mencurigakan) dicatat sebagai `activity_logs` kind `ERROR`; log jawaban
+   benar/salah tidak lagi ditulis. Rate limit per-instance memakai bucket terpisah untuk
+   request/jawaban/move/focus.
 9. **Realtime Broadcast hybrid.** Perubahan game dikirim sebagai Broadcast ringan dari trigger
-   database (`realtime.send`) ke topik `game-<session_id>`, bukan `postgres_changes`:
-   `answer.created`, `team.joined`, `team.moved`, `session.updated`, `log.created`. Payload
-   berupa delta kecil; `activity_logs` hanya di-broadcast saat `ERROR`. Rekonsiliasi penuh
-   berkala (15 detik) plus saat tab kembali fokus/`online` menjaga konsistensi.
-10. **RPC atomik.** `request_question`, `submit_answer`, dan `submit_move` menggabungkan banyak
-    query menjadi satu round-trip; `submit_answer`/`submit_move` mengunci baris tim sehingga
-    bebas race condition. RPC hanya untuk `service_role`.
+   database (`realtime.send`) ke topik `game-<session_id>`: `answer.created`, `team.joined`,
+   `team.moved`, `move.created`, `attempt.updated`, `session.updated`, `log.created`. Payload
+   berupa delta kecil. Klien menerapkan delta secara langsung dan membatch event (~80 ms);
+   rekonsiliasi penuh (20 detik, saat fokus/online, dan saat reset) memakai RPC
+   `fetch_game_state`.
+10. **RPC atomik.** `request_question`, `submit_answer`, `submit_move`, `fetch_game_state`,
+    `create_session`, dan `report_focus_event` menggabungkan banyak query menjadi satu
+    round-trip; `submit_answer`/`submit_move` mengunci baris tim sehingga bebas race condition.
 11. **Timer server-authoritative.** `started_at` disimpan server; klien menyinkronkan offset
     waktu sekali (`lib/clock.ts`) dan menghitung sisa waktu dari `serverNow()`, sehingga timer
     konsisten antar perangkat.
@@ -176,22 +182,27 @@ Prinsip: **logika game murni** (`lib/game.ts`) dipisah dari **I/O** (Supabase/de
 
 - Realtime: Broadcast, bukan `postgres_changes` → hemat WAL/RLS. Kuota Free: 200 koneksi
   bersamaan dan 100 pesan/detik; satu channel per room.
-- Rekonsiliasi 15 detik memakai Server Action (bukan pesan Realtime).
+- Rekonsiliasi 20 detik memakai RPC `fetch_game_state` (bukan pesan Realtime).
 - `activity_logs` dibatasi (mis. 50 entri terbaru) saat query.
 - Supabase Storage/audio tidak dipakai; aset statis di `/public` + service worker.
 
 ## 8. Optimasi Performa
 
-- **Bundle**: `@supabase/supabase-js` di-`dynamic import` (tidak ikut di mode demo); format
-  gambar AVIF/WebP; font dipangkas; `npm run analyze` untuk cek budget.
-- **Render**: `AnswerFeedback` (confetti) di-`dynamic import`; landing/rules `force-static`;
-  server shell memisahkan client island.
+- **Bundle**: `@supabase/supabase-js` di-`dynamic import` (tidak ikut di mode demo); komponen
+  mode Ular Tangga dan panel tab guru di-`dynamic import`; format gambar AVIF/WebP; font
+  dipangkas; `npm run analyze` untuk cek budget.
+- **Render**: event realtime dibatch (~80 ms) dan memakai `startTransition`; komponen berat
+  (`SnakesBoard`, `QuestionBoard`, `Leaderboard`, `BoardStandings`, `ActivityLog`) dimemo;
+  geometri statis `SnakesBoard` di-`useMemo`; reorder papan memakai satu perhitungan standings.
+- **Navigasi**: `?slot=` diperbarui dengan `history.replaceState` agar tidak memicu permintaan
+  RSC setiap buka/tutup soal.
 - **Perangkat low-end**: `RuntimeOptimizations` mendeteksi `hardwareConcurrency`/`deviceMemory`/
-  `prefers-reduced-motion` dan menyalakan `data-lite` (matikan confetti/float/blur).
+  `saveData`/`effectiveType`/`prefers-reduced-motion` dan menyalakan `data-lite` (matikan
+  confetti/float/blur). Siswa dapat menimpa lewat tombol Mode Ringan.
 - **Perceived performance**: skeleton screen, feedback lokal (<100 ms) via `lib/feedback.ts`,
   optimistic close modal, retry otomatis 3x.
 - **Caching**: service worker `public/sw.js` (cache-first aset statis, offline fallback untuk
-  navigasi).
+  navigasi); `preconnect` ke origin Supabase untuk mempercepat koneksi realtime.
 
 ## 9. Integrasi AI (Gemini)
 

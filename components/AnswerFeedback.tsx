@@ -103,8 +103,8 @@ export default function AnswerFeedback({
     >
       <div
         className={[
-          "absolute inset-0 backdrop-blur-sm",
-          correct ? "bg-emerald-950/60" : "bg-slate-900/70",
+          "absolute inset-0",
+          correct ? "bg-emerald-950/70" : "bg-slate-900/80",
         ].join(" ")}
       />
 

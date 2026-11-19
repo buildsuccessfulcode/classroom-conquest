@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import {
   generateQuestions as geminiGenerate,
   listGeminiModels as geminiListModels,
@@ -31,9 +32,7 @@ import {
 import { isAvatarId, pickAvatar } from "@/lib/avatars";
 import { createServiceClient } from "@/lib/supabase/server";
 import type {
-  ActivityLog,
   AiSettings,
-  Answer,
   AnswerResult,
   BoardConfig,
   BoardPreset,
@@ -45,7 +44,6 @@ import type {
   GeminiModel,
   JoinTeamResult,
   LogKind,
-  Move,
   PublicQuestion,
   Question,
   QuestionGroup,
@@ -53,8 +51,6 @@ import type {
   QuestionType,
   SeedQuestion,
   Session,
-  SessionSlot,
-  SlotInfo,
   SlotQuestion,
   Team,
 } from "@/lib/types";
@@ -65,26 +61,33 @@ const SESSION_COLUMNS =
   "id, session_code, group_id, subject_name, is_active, status, game_mode, board_config, duration_minutes, started_at, ended_at, created_at";
 const TEAM_COLUMNS =
   "id, session_id, team_name, color_code, avatar, position, finished_at, score, joined_at, created_at";
-const SLOT_COLUMNS = "id, session_id, slot_number, question_id, created_at";
-const ANSWER_COLUMNS =
-  "id, session_id, team_id, slot_number, question_id, points, answered_at";
-const MOVE_COLUMNS =
-  "id, session_id, team_id, slot_number, question_id, correct, points, delta, from_position, to_position, jump, created_at";
-const LOG_COLUMNS = "id, session_id, team_id, message, kind, created_at";
 const GROUP_COLUMNS = "id, name, subject, created_at";
+
+const GAMEPLAY_RATE_LIMIT = 60;
+const FOCUS_RATE_LIMIT = 12;
 
 const rateBuckets = new Map<string, number[]>();
 
-function enforceRateLimit(key: string): void {
+function enforceRateLimit(
+  key: string,
+  limit = RATE_LIMIT_MAX_REQUESTS,
+): void {
   const now = Date.now();
   const recent = (rateBuckets.get(key) ?? []).filter(
     (stamp) => now - stamp < RATE_LIMIT_WINDOW_MS,
   );
-  if (recent.length >= RATE_LIMIT_MAX_REQUESTS) {
+  if (recent.length >= limit) {
     throw new Error("Terlalu banyak permintaan. Tunggu sebentar.");
   }
   recent.push(now);
   rateBuckets.set(key, recent);
+  if (rateBuckets.size > 500) {
+    for (const [bucketKey, stamps] of rateBuckets) {
+      if (stamps.every((stamp) => now - stamp >= RATE_LIMIT_WINDOW_MS)) {
+        rateBuckets.delete(bucketKey);
+      }
+    }
+  }
 }
 
 function sb() {
@@ -145,38 +148,6 @@ function withShuffledChoices(question: PublicQuestion): PublicQuestion {
   return { ...question, metadata: next };
 }
 
-function isSessionTimeUp(session: Session): boolean {
-  if (session.status === "ENDED") return true;
-  if (!session.started_at) return false;
-  const endsAt =
-    new Date(session.started_at).getTime() + session.duration_minutes * 60_000;
-  return Date.now() > endsAt;
-}
-
-async function autoEndIfExpired(session: Session): Promise<Session> {
-  if (session.status !== "PLAYING") return session;
-  if (!isSessionTimeUp(session)) return session;
-  const now = new Date().toISOString();
-  const { data, error } = await sb()
-    .from("sessions")
-    .update({ status: "ENDED", is_active: false, ended_at: now })
-    .eq("id", session.id)
-    .eq("status", "PLAYING")
-    .select(SESSION_COLUMNS)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) {
-    return (await getSessionByCode(session.session_code)) ?? session;
-  }
-  await addLog(
-    session.id,
-    null,
-    "Waktu habis. Sesi berakhir otomatis.",
-    "SYSTEM",
-  );
-  return data as Session;
-}
-
 function isSessionTimeUpError(message: string): boolean {
   return /waktu sesi sudah habis/i.test(message);
 }
@@ -213,44 +184,14 @@ async function getSessionByCode(code: string): Promise<Session | null> {
 }
 
 async function addLog(
-  sessionId: string,
-  teamId: string | null,
-  message: string,
-  kind: LogKind,
+    sessionId: string,
+    teamId: string | null,
+    message: string,
+    kind: LogKind,
 ): Promise<void> {
   await sb()
     .from("activity_logs")
     .insert({ session_id: sessionId, team_id: teamId, message, kind });
-}
-
-async function ensureSlots(session: Session): Promise<void> {
-  const client = sb();
-  const { count, error } = await client
-    .from("session_questions")
-    .select("id", { count: "exact", head: true })
-    .eq("session_id", session.id);
-  if (error) throw new Error(error.message);
-  if ((count ?? 0) > 0) return;
-  const { data, error: questionError } = await client
-    .from("questions")
-    .select("id")
-    .eq("group_id", session.group_id)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
-  if (questionError) throw new Error(questionError.message);
-  const questions = (data as { id: string }[] | null) ?? [];
-  if (questions.length === 0) {
-    throw new Error("Group soal kosong. Impor soal terlebih dahulu.");
-  }
-  const rows = questions.map((question, index) => ({
-    session_id: session.id,
-    slot_number: index + 1,
-    question_id: question.id,
-  }));
-  const { error: insertError } = await client
-    .from("session_questions")
-    .insert(rows);
-  if (insertError) throw new Error(insertError.message);
 }
 
 export async function listQuestionGroups(): Promise<QuestionGroupSummary[]> {
@@ -298,14 +239,6 @@ export async function createSession(input: {
   const client = sb();
   const groupId = input.groupId?.trim();
   if (!groupId) throw new Error("Group soal wajib dipilih");
-  const { data: groupData, error: groupError } = await client
-    .from("question_groups")
-    .select(GROUP_COLUMNS)
-    .eq("id", groupId)
-    .maybeSingle();
-  if (groupError) throw new Error(groupError.message);
-  const group = groupData as QuestionGroup | null;
-  if (!group) throw new Error("Group soal tidak ditemukan");
   const duration = clampDuration(input.durationMinutes ?? 30);
   const mode: GameMode = input.mode === "SNAKES" ? "SNAKES" : "CLASSIC";
   let boardConfig: BoardConfig | null = null;
@@ -313,7 +246,7 @@ export async function createSession(input: {
     const { count: questionCount, error: countError } = await client
       .from("questions")
       .select("id", { count: "exact", head: true })
-      .eq("group_id", group.id);
+      .eq("group_id", groupId);
     if (countError) throw new Error(countError.message);
     const count = questionCount ?? 0;
     if (count < minQuestionsForBoard()) {
@@ -343,34 +276,20 @@ export async function createSession(input: {
   let created: Session | null = null;
   for (let attempt = 0; attempt < 6 && !created; attempt += 1) {
     const code = randomCode();
-    const { data, error } = await client
-      .from("sessions")
-      .insert({
-        session_code: code,
-        group_id: group.id,
-        subject_name: group.subject,
-        duration_minutes: duration,
-        status: "LOBBY",
-        is_active: true,
-        game_mode: mode,
-        board_config: boardConfig,
-      })
-      .select(SESSION_COLUMNS)
-      .single();
+    const { data, error } = await client.rpc("create_session", {
+      p_code: code,
+      p_group_id: groupId,
+      p_duration: duration,
+      p_game_mode: mode,
+      p_board_config: boardConfig,
+    });
     if (error) {
       if (error.code === "23505") continue;
       throw new Error(error.message);
     }
-    created = data as Session;
+    created = data as Session | null;
   }
   if (!created) throw new Error("Gagal membuat kode sesi unik");
-  await ensureSlots(created);
-  await addLog(
-    created.id,
-    null,
-    `Sesi ${created.session_code} dibuat untuk ${group.subject}`,
-    "SYSTEM",
-  );
   return { code: created.session_code };
 }
 
@@ -402,18 +321,21 @@ export async function joinTeam(input: {
   const name = input.teamName.trim();
   if (!name) return { ok: false, error: "Nama tim wajib diisi" };
   const avatar = isAvatarId(input.avatar) ? input.avatar : null;
-  const { data: existing } = await client
-    .from("teams")
-    .select(TEAM_COLUMNS)
-    .eq("session_id", session.id)
-    .ilike("team_name", name)
-    .maybeSingle();
+  const [{ data: existing }, { data: teams }] = await Promise.all([
+    client
+      .from("teams")
+      .select(TEAM_COLUMNS)
+      .eq("session_id", session.id)
+      .ilike("team_name", name)
+      .maybeSingle(),
+    client
+      .from("teams")
+      .select("color_code, avatar")
+      .eq("session_id", session.id),
+  ]);
   if (existing) return { ok: true, team: existing as Team };
-  const { data: teams } = await client
-    .from("teams")
-    .select("color_code, avatar")
-    .eq("session_id", session.id);
-  const used = (teams as { color_code: string; avatar: string | null }[] | null) ?? [];
+  const used =
+    (teams as { color_code: string; avatar: string | null }[] | null) ?? [];
   const usedAvatars = used
     .map((team) => team.avatar)
     .filter((value): value is string => Boolean(value));
@@ -436,91 +358,30 @@ export async function joinTeam(input: {
     .select(TEAM_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
-  const team = data as Team;
-  await addLog(session.id, team.id, `Tim ${team.team_name} bergabung`, "JOIN");
-  return { ok: true, team };
+  return { ok: true, team: data as Team };
 }
 
 export async function fetchGameState(
   sessionCode: string,
+  teamId?: string | null,
 ): Promise<GameState | null> {
-  const client = sb();
-  const session = await getSessionByCode(sessionCode);
-  if (!session) return null;
-  const activeSession = await autoEndIfExpired(session);
-  const [teamsRes, slotsRes, answersRes, logsRes] = await Promise.all([
-    client
-      .from("teams")
-      .select(TEAM_COLUMNS)
-      .eq("session_id", activeSession.id)
-      .order("joined_at", { ascending: true }),
-    client
-      .from("session_questions")
-      .select(SLOT_COLUMNS)
-      .eq("session_id", activeSession.id)
-      .order("slot_number", { ascending: true }),
-    client
-      .from("answers")
-      .select(ANSWER_COLUMNS)
-      .eq("session_id", activeSession.id)
-      .order("answered_at", { ascending: true }),
-    client
-      .from("activity_logs")
-      .select(LOG_COLUMNS)
-      .eq("session_id", activeSession.id)
-      .order("created_at", { ascending: false })
-      .limit(50),
-  ]);
-  const logs = ((logsRes.data as ActivityLog[] | null) ?? []).reverse();
-  let moves: Move[] = [];
-  let slotInfo: SlotInfo[] = [];
-  if (activeSession.game_mode === "SNAKES") {
-    const [movesRes, slotInfoRes] = await Promise.all([
-      client
-        .from("moves")
-        .select(MOVE_COLUMNS)
-        .eq("session_id", activeSession.id)
-        .order("created_at", { ascending: true }),
-      client
-        .from("session_questions")
-        .select("slot_number, question_id, questions(type, difficulty, points)")
-        .eq("session_id", activeSession.id)
-        .order("slot_number", { ascending: true }),
-    ]);
-    moves = (movesRes.data as Move[] | null) ?? [];
-    type SlotInfoRow = {
-      slot_number: number;
-      question_id: string;
-      questions:
-        | { type: QuestionType; difficulty: "EASY" | "MEDIUM" | "HARD"; points: number }
-        | { type: QuestionType; difficulty: "EASY" | "MEDIUM" | "HARD"; points: number }[]
-        | null;
-    };
-    slotInfo = ((slotInfoRes.data as SlotInfoRow[] | null) ?? [])
-      .map((row) => {
-        const question = Array.isArray(row.questions)
-          ? row.questions[0]
-          : row.questions;
-        if (!question) return null;
-        return {
-          slot_number: row.slot_number,
-          question_id: row.question_id,
-          type: question.type,
-          difficulty: question.difficulty,
-          points: question.points,
-        };
-      })
-      .filter((row): row is SlotInfo => row !== null);
-  }
+  const { data, error } = await sb().rpc("fetch_game_state", {
+    p_session_code: sessionCode,
+    p_team_id: teamId ?? null,
+  });
+  if (error) throw new Error(error.message);
+  const state = data as GameState | null;
+  if (!state) return null;
   return {
-    session: activeSession,
-    teams: (teamsRes.data as Team[] | null) ?? [],
-    slots: (slotsRes.data as SessionSlot[] | null) ?? [],
-    answers: (answersRes.data as Answer[] | null) ?? [],
-    moves,
-    slotInfo,
-    logs,
-    serverTime: new Date().toISOString(),
+    session: state.session,
+    teams: state.teams ?? [],
+    slots: state.slots ?? [],
+    answers: state.answers ?? [],
+    moves: state.moves ?? [],
+    slotInfo: state.slotInfo ?? [],
+    attempts: state.attempts ?? [],
+    logs: state.logs ?? [],
+    serverTime: state.serverTime,
   };
 }
 
@@ -529,7 +390,10 @@ export async function requestQuestion(input: {
   teamId: string;
   slotNumber: number;
 }): Promise<SlotQuestion> {
-  enforceRateLimit(`${input.sessionCode}:${input.teamId}`);
+  enforceRateLimit(
+    `request:${input.sessionCode}:${input.teamId}`,
+    GAMEPLAY_RATE_LIMIT,
+  );
   const { data, error } = await sb().rpc("request_question", {
     p_session_code: input.sessionCode,
     p_team_id: input.teamId,
@@ -572,7 +436,10 @@ export async function submitAnswer(input: {
   slotNumber: number;
   answer: string;
 }): Promise<AnswerResult> {
-  enforceRateLimit(`${input.sessionCode}:${input.teamId}`);
+  enforceRateLimit(
+    `answer:${input.sessionCode}:${input.teamId}`,
+    GAMEPLAY_RATE_LIMIT,
+  );
   const { data, error } = await sb().rpc("submit_answer", {
     p_session_code: input.sessionCode,
     p_team_id: input.teamId,
@@ -597,7 +464,10 @@ export async function submitMove(input: {
   slotNumber: number;
   answer: string;
 }): Promise<AnswerResult> {
-  enforceRateLimit(`${input.sessionCode}:${input.teamId}`);
+  enforceRateLimit(
+    `move:${input.sessionCode}:${input.teamId}`,
+    GAMEPLAY_RATE_LIMIT,
+  );
   const { data, error } = await sb().rpc("submit_move", {
     p_session_code: input.sessionCode,
     p_team_id: input.teamId,
@@ -613,34 +483,7 @@ export async function submitMove(input: {
   }
   const row = data as AnswerResult | null;
   if (!row) throw new Error("Gagal memproses langkah");
-  if (!row.correct) return row;
-  const { data: moveRow } = await sb()
-    .from("moves")
-    .select("created_at")
-    .eq("team_id", input.teamId)
-    .eq("slot_number", input.slotNumber)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const createdAt = (moveRow as { created_at: string } | null)?.created_at;
-  return createdAt ? { ...row, createdAt } : row;
-}
-
-export async function getSessionPreview(sessionCode: string): Promise<{
-  mode: GameMode;
-  status: string;
-} | null> {
-  const code = sessionCode.trim().toUpperCase();
-  if (!code) return null;
-  const { data, error } = await sb()
-    .from("sessions")
-    .select("game_mode, status")
-    .eq("session_code", code)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  const row = data as { game_mode: GameMode; status: string } | null;
-  if (!row) return null;
-  return { mode: row.game_mode, status: row.status };
+  return row;
 }
 
 export async function reportFocusEvent(input: {
@@ -649,30 +492,17 @@ export async function reportFocusEvent(input: {
   awayMs: number;
   reason?: "leave" | "return" | "exit";
 }): Promise<void> {
-  const client = sb();
-  const session = await getSessionByCode(input.sessionCode);
-  if (!session) return;
-  if (session.status !== "PLAYING") return;
-  if (isSessionTimeUp(session)) return;
-  const { data: teamData } = await client
-    .from("teams")
-    .select(TEAM_COLUMNS)
-    .eq("id", input.teamId)
-    .eq("session_id", session.id)
-    .maybeSingle();
-  const team = teamData as Team | null;
-  if (!team) return;
-  enforceRateLimit(`${session.id}:${team.id}:focus`);
-  const awaySeconds = Math.max(1, Math.round(input.awayMs / 1000));
-  let message: string;
-  if (input.reason === "leave") {
-    message = `[PERINGATAN] Tim ${team.team_name} meninggalkan tab permainan`;
-  } else if (input.reason === "return") {
-    message = `[PERINGATAN] Tim ${team.team_name} kembali setelah meninggalkan tab selama ${awaySeconds} detik`;
-  } else {
-    message = `[PERINGATAN] Tim ${team.team_name} keluar dari tab permainan`;
-  }
-  await addLog(session.id, team.id, message, "ERROR");
+  enforceRateLimit(
+    `focus:${input.sessionCode}:${input.teamId}`,
+    FOCUS_RATE_LIMIT,
+  );
+  const { error } = await sb().rpc("report_focus_event", {
+    p_session_code: input.sessionCode,
+    p_team_id: input.teamId,
+    p_away_ms: Math.max(0, Math.round(input.awayMs)),
+    p_reason: input.reason ?? "exit",
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function importQuestions(input: {
@@ -784,7 +614,9 @@ export async function startSession(sessionCode: string): Promise<void> {
     })
     .eq("id", session.id);
   if (error) throw new Error(error.message);
-  await addLog(session.id, null, "Sesi dimulai", "SYSTEM");
+  after(async () => {
+    await addLog(session.id, null, "Sesi dimulai", "SYSTEM");
+  });
 }
 
 export async function resetSession(sessionCode: string): Promise<void> {
@@ -792,11 +624,14 @@ export async function resetSession(sessionCode: string): Promise<void> {
   const client = sb();
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
-  await client.from("answers").delete().eq("session_id", session.id);
-  await client.from("moves").delete().eq("session_id", session.id);
-  await client.from("activity_logs").delete().eq("session_id", session.id);
-  await client.from("teams").delete().eq("session_id", session.id);
-  await client
+  await Promise.all([
+    client.from("answers").delete().eq("session_id", session.id),
+    client.from("moves").delete().eq("session_id", session.id),
+    client.from("slot_attempts").delete().eq("session_id", session.id),
+    client.from("activity_logs").delete().eq("session_id", session.id),
+    client.from("teams").delete().eq("session_id", session.id),
+  ]);
+  const { error } = await client
     .from("sessions")
     .update({
       status: "LOBBY",
@@ -805,12 +640,15 @@ export async function resetSession(sessionCode: string): Promise<void> {
       ended_at: null,
     })
     .eq("id", session.id);
-  await addLog(
-    session.id,
-    null,
-    "Sesi direset. Peserta dan skor dikosongkan.",
-    "SYSTEM",
-  );
+  if (error) throw new Error(error.message);
+  after(async () => {
+    await addLog(
+      session.id,
+      null,
+      "Sesi direset. Peserta dan skor dikosongkan.",
+      "SYSTEM",
+    );
+  });
 }
 
 export async function endSession(sessionCode: string): Promise<void> {
@@ -823,7 +661,9 @@ export async function endSession(sessionCode: string): Promise<void> {
     .update({ status: "ENDED", is_active: false, ended_at: now })
     .eq("id", session.id);
   if (error) throw new Error(error.message);
-  await addLog(session.id, null, "Sesi diakhiri", "SYSTEM");
+  after(async () => {
+    await addLog(session.id, null, "Sesi diakhiri", "SYSTEM");
+  });
 }
 
 export async function deleteSession(sessionCode: string): Promise<void> {

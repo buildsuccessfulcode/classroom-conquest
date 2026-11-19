@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { stepRangeFor } from "@/lib/game";
 import type { Difficulty, SlotInfo } from "@/lib/types";
 import { LockIcon } from "./icons";
@@ -10,7 +11,7 @@ const DIFFICULTY: Record<Difficulty, { label: string; className: string }> = {
   HARD: { label: "Sulit", className: "bg-cherry-soft text-cherry-dark" },
 };
 
-export default function SnakesQuestionGrid({
+function SnakesQuestionGrid({
   slotInfo,
   usedSlots,
   onSelect,
@@ -90,3 +91,5 @@ export default function SnakesQuestionGrid({
     </div>
   );
 }
+
+export default memo(SnakesQuestionGrid);

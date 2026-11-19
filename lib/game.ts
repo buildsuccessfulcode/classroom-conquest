@@ -91,7 +91,7 @@ export function buildLeaderboard(
       } else if (b.lastAnsweredAt) {
         return 1;
       }
-      return a.team.team_name.localeCompare(b.team.team_name);
+      return nameCollator.compare(a.team.team_name, b.team.team_name);
     })
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
@@ -127,35 +127,7 @@ export function shuffle<T>(items: T[]): T[] {
   return copy;
 }
 
-export function wrongAttemptSlot(message: string): number | null {
-  const match = message.match(/menjawab salah nomor (\d+)/);
-  return match ? Number(match[1]) : null;
-}
-
-export function countWrongAttempts(
-  logs: { message: string }[],
-  slotNumber: number,
-): number {
-  return logs.reduce(
-    (count, log) =>
-      wrongAttemptSlot(log.message) === slotNumber ? count + 1 : count,
-    0,
-  );
-}
-
-export function countWrongAttemptsForTeam(
-  logs: { message: string; team_id?: string | null }[],
-  slotNumber: number,
-  teamId: string,
-): number {
-  return logs.reduce(
-    (count, log) =>
-      log.team_id === teamId && wrongAttemptSlot(log.message) === slotNumber
-        ? count + 1
-        : count,
-    0,
-  );
-}
+const nameCollator = new Intl.Collator("id");
 
 export function isRapidFire(
   lastAnsweredAt: string | null,
@@ -566,10 +538,11 @@ export function buildBoardStandings(
   teams: Team[],
   moves: Move[] = [],
 ): BoardStanding[] {
+  const teamById = new Map(teams.map((team) => [team.id, team]));
   const reachedAt = new Map<string, string>();
   for (const move of moves) {
     if (!move.correct) continue;
-    const team = teams.find((item) => item.id === move.team_id);
+    const team = teamById.get(move.team_id);
     if (!team || move.to_position !== team.position) continue;
     const current = reachedAt.get(move.team_id);
     if (!current || move.created_at < current) {
@@ -592,7 +565,7 @@ export function buildBoardStandings(
       }
       if (aReached) return -1;
       if (bReached) return 1;
-      return a.team_name.localeCompare(b.team_name);
+      return nameCollator.compare(a.team_name, b.team_name);
     })
     .map((team, index) => ({
       team,

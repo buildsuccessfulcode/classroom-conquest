@@ -140,17 +140,7 @@ export function xpForTeam(answers: Answer[], teamId: string): number {
   );
 }
 
-export function streakForTeam(
-  answers: Answer[],
-  teamId: string,
-  now?: number,
-): StreakInfo {
-  const times = answers
-    .filter((answer) => answer.team_id === teamId)
-    .map((answer) => new Date(answer.answered_at).getTime())
-    .filter((time) => !Number.isNaN(time))
-    .sort((a, b) => a - b);
-
+function streakFromTimes(times: number[], now?: number): StreakInfo {
   if (times.length === 0) return { current: 0, best: 0 };
 
   let best = 1;
@@ -164,6 +154,19 @@ export function streakForTeam(
   const stale =
     typeof now === "number" && now - times[times.length - 1] > STREAK_WINDOW_MS;
   return { current: stale ? 0 : run, best };
+}
+
+export function streakForTeam(
+  answers: Answer[],
+  teamId: string,
+  now?: number,
+): StreakInfo {
+  const times = answers
+    .filter((answer) => answer.team_id === teamId)
+    .map((answer) => new Date(answer.answered_at).getTime())
+    .filter((time) => !Number.isNaN(time))
+    .sort((a, b) => a - b);
+  return streakFromTimes(times, now);
 }
 
 export interface BadgeContext {
@@ -186,6 +189,21 @@ export function earnedBadgeIds(ctx: BadgeContext): Record<BadgeId, boolean> {
   };
 }
 
+function badgesFromCounts(
+  correct: number,
+  streakBest: number,
+  totalSlots: number,
+  rank: number,
+): EarnedBadge[] {
+  const earned = earnedBadgeIds({
+    correct,
+    streakBest,
+    totalSlots,
+    rank,
+  });
+  return BADGES.map((badge) => ({ ...badge, earned: earned[badge.id] }));
+}
+
 export function badgesForTeam(
   team: Team,
   answers: Answer[],
@@ -194,8 +212,7 @@ export function badgesForTeam(
 ): EarnedBadge[] {
   const correct = answers.filter((answer) => answer.team_id === team.id).length;
   const streakBest = streakForTeam(answers, team.id).best;
-  const earned = earnedBadgeIds({ correct, streakBest, totalSlots, rank });
-  return BADGES.map((badge) => ({ ...badge, earned: earned[badge.id] }));
+  return badgesFromCounts(correct, streakBest, totalSlots, rank);
 }
 
 export function teamStats(
@@ -206,19 +223,24 @@ export function teamStats(
   const totalSlots = state.slots.length;
   const board = buildLeaderboard(state.teams, state.answers, totalSlots);
   const entry = board.find((item) => item.team.id === teamId);
-  const team = state.teams.find((item) => item.id === teamId);
   const xp = entry?.points ?? 0;
   const rank = entry?.rank ?? 0;
   const correct = entry?.correct ?? 0;
-  const badges = team
-    ? badgesForTeam(team, state.answers, totalSlots, rank)
-    : BADGES.map((badge) => ({ ...badge, earned: false }));
+  const teamAnswers = state.answers.filter(
+    (answer) => answer.team_id === teamId,
+  );
+  const times = teamAnswers
+    .map((answer) => new Date(answer.answered_at).getTime())
+    .filter((time) => !Number.isNaN(time))
+    .sort((a, b) => a - b);
+  const streak = streakFromTimes(times, now);
+  const badges = badgesFromCounts(correct, streak.best, totalSlots, rank);
 
   return {
     teamId,
     xp,
     level: levelFromXp(xp),
-    streak: streakForTeam(state.answers, teamId, now),
+    streak,
     correct,
     total: totalSlots,
     rank,

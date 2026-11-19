@@ -28,10 +28,21 @@ create table if not exists public.moves (
     unique (session_id, team_id, slot_number)
 );
 
+create table if not exists public.slot_attempts (
+    session_id uuid not null references public.sessions(id) on delete cascade,
+    team_id uuid not null references public.teams(id) on delete cascade,
+    slot_number int not null,
+    attempts int not null default 0,
+    last_attempt_at timestamptz not null default now(),
+    primary key (session_id, team_id, slot_number)
+);
+
 create index if not exists moves_session_idx on public.moves (session_id);
+create index if not exists moves_session_created_idx on public.moves (session_id, created_at);
 create index if not exists moves_team_idx on public.moves (team_id);
 
 alter table public.moves enable row level security;
+alter table public.slot_attempts enable row level security;
 
 drop policy if exists "public read moves" on public.moves;
 create policy "public read moves" on public.moves
@@ -40,8 +51,20 @@ create policy "public read moves" on public.moves
 -- 1. Index tambahan
 create index if not exists sessions_status_idx
     on public.sessions (status);
+create index if not exists sessions_created_idx
+    on public.sessions (created_at desc);
+create index if not exists teams_session_joined_idx
+    on public.teams (session_id, joined_at);
+create index if not exists answers_session_answered_idx
+    on public.answers (session_id, answered_at);
+create index if not exists activity_logs_session_idx
+    on public.activity_logs (session_id, created_at desc);
+create index if not exists activity_logs_session_kind_idx
+    on public.activity_logs (session_id, kind, created_at desc);
 create index if not exists activity_logs_team_slot_idx
     on public.activity_logs (session_id, team_id, created_at desc);
+create index if not exists questions_group_created_idx
+    on public.questions (group_id, created_at, id);
 create index if not exists questions_group_difficulty_idx
     on public.questions (group_id, difficulty);
 
@@ -132,8 +155,31 @@ begin
             'game-' || new.id::text,
             false
         );
-    elsif tg_table_name = 'activity_logs' and tg_op = 'INSERT'
-          and new.kind = 'ERROR' then
+    elsif tg_table_name = 'moves' and tg_op = 'INSERT' then
+        perform realtime.send(
+            jsonb_build_object('type', 'move.created', 'move', to_jsonb(new)),
+            'move.created',
+            'game-' || new.session_id::text,
+            false
+        );
+    elsif tg_table_name = 'slot_attempts'
+          and (tg_op = 'INSERT' or tg_op = 'UPDATE') then
+        perform realtime.send(
+            jsonb_build_object(
+                'type', 'attempt.updated',
+                'attempt', jsonb_build_object(
+                    'session_id', new.session_id,
+                    'team_id', new.team_id,
+                    'slot_number', new.slot_number,
+                    'attempts', new.attempts,
+                    'last_attempt_at', new.last_attempt_at
+                )
+            ),
+            'attempt.updated',
+            'game-' || new.session_id::text,
+            false
+        );
+    elsif tg_table_name = 'activity_logs' and tg_op = 'INSERT' then
         perform realtime.send(
             jsonb_build_object(
                 'type', 'log.created',
@@ -180,6 +226,16 @@ create trigger broadcast_sessions
 drop trigger if exists broadcast_activity_logs on public.activity_logs;
 create trigger broadcast_activity_logs
     after insert on public.activity_logs
+    for each row execute function public.broadcast_game_change();
+
+drop trigger if exists broadcast_moves on public.moves;
+create trigger broadcast_moves
+    after insert on public.moves
+    for each row execute function public.broadcast_game_change();
+
+drop trigger if exists broadcast_slot_attempts on public.slot_attempts;
+create trigger broadcast_slot_attempts
+    after insert or update on public.slot_attempts
     for each row execute function public.broadcast_game_change();
 
 -- 4. RPC: ambil soal + status + percobaan dalam satu round-trip
@@ -231,10 +287,12 @@ begin
           and slot_number = p_slot_number
     ) into v_solved;
 
-    select count(*) into v_wrong from public.activity_logs
+    select coalesce((
+        select attempts from public.slot_attempts
         where session_id = v_session.id
           and team_id = p_team_id
-          and message like '%menjawab salah nomor ' || p_slot_number || ' (%';
+          and slot_number = p_slot_number
+    ), 0) into v_wrong;
 
     select exists(
         select 1 from public.moves
@@ -301,10 +359,12 @@ begin
           and slot_number = p_slot_number;
     if v_existing is not null then raise exception 'Soal ini sudah Anda jawab benar'; end if;
 
-    select count(*) into v_wrong from public.activity_logs
+    select coalesce((
+        select attempts from public.slot_attempts
         where session_id = v_session.id
           and team_id = p_team_id
-          and message like '%menjawab salah nomor ' || p_slot_number || ' (%';
+          and slot_number = p_slot_number
+    ), 0) into v_wrong;
 
     if v_wrong >= 2 then
         return jsonb_build_object(
@@ -322,14 +382,15 @@ begin
     if public.normalize_answer(v_question.correct_answer)
         <> public.normalize_answer(p_answer)
     then
-        insert into public.activity_logs (session_id, team_id, message, kind)
-        values (
-            v_session.id,
-            p_team_id,
-            'Tim ' || v_team.team_name || ' menjawab salah nomor ' || p_slot_number
-                || ' (percobaan ' || (v_wrong + 1) || '/2)',
-            'INFO'
-        );
+        insert into public.slot_attempts (
+            session_id, team_id, slot_number, attempts, last_attempt_at
+        ) values (
+            v_session.id, p_team_id, p_slot_number, v_wrong + 1, now()
+        )
+        on conflict (session_id, team_id, slot_number)
+        do update set
+            attempts = public.slot_attempts.attempts + 1,
+            last_attempt_at = now();
         return jsonb_build_object(
             'correct', false,
             'message', case
@@ -360,15 +421,6 @@ begin
         (v_session.id, p_team_id, p_slot_number, v_question.id, v_gained, now());
 
     update public.teams set score = score + v_gained where id = p_team_id;
-
-    insert into public.activity_logs (session_id, team_id, message, kind)
-    values (
-        v_session.id,
-        p_team_id,
-        'Tim ' || v_team.team_name || ' menjawab benar nomor ' || p_slot_number
-            || ' (+' || v_gained || ')',
-        'CLAIM'
-    );
 
     if v_wrong >= 1 or v_rapid then
         insert into public.activity_logs (session_id, team_id, message, kind)
@@ -424,6 +476,7 @@ declare
     v_bounced boolean := false;
     v_link jsonb;
     v_message text;
+    v_created_at timestamptz;
 begin
     select * into v_session from public.sessions
         where session_code = upper(trim(p_session_code));
@@ -546,7 +599,8 @@ begin
     ) values (
         v_session.id, p_team_id, p_slot_number, v_question.id, v_correct,
         v_points, v_delta, v_from, v_to, v_jump
-    );
+    )
+    returning created_at into v_created_at;
 
     if v_correct then
         update public.teams
@@ -581,14 +635,6 @@ begin
             || v_from || ', soal hangus.';
     end if;
 
-    insert into public.activity_logs (session_id, team_id, message, kind)
-    values (
-        v_session.id,
-        p_team_id,
-        'Tim ' || v_team.team_name || ': ' || v_message,
-        case when v_correct then 'CLAIM' else 'INFO' end
-    );
-
     if v_finished then
         update public.sessions
             set status = 'ENDED', is_active = false, ended_at = now()
@@ -616,19 +662,258 @@ begin
         'jump', v_jump,
         'finished', v_finished,
         'streak', case when v_correct then v_streak + 1 else 0 end,
-        'bounced', v_bounced
+        'bounced', v_bounced,
+        'createdAt', v_created_at
     );
+end $$;
+
+-- 5c. Satu round-trip untuk seluruh state permainan.
+create or replace function public.fetch_game_state(
+    p_session_code text,
+    p_team_id uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_session public.sessions;
+    v_teams jsonb;
+    v_slots jsonb;
+    v_answers jsonb;
+    v_moves jsonb;
+    v_slot_info jsonb;
+    v_logs jsonb;
+    v_attempts jsonb;
+begin
+    select * into v_session from public.sessions
+        where session_code = upper(trim(p_session_code));
+    if v_session.id is null then return null; end if;
+
+    if v_session.status = 'PLAYING'
+        and v_session.started_at is not null
+        and now() > v_session.started_at + (v_session.duration_minutes || ' minutes')::interval
+    then
+        update public.sessions
+            set status = 'ENDED', is_active = false, ended_at = now()
+            where id = v_session.id and status = 'PLAYING';
+        if found then
+            insert into public.activity_logs (session_id, team_id, message, kind)
+            values (
+                v_session.id,
+                null,
+                'Waktu habis. Sesi berakhir otomatis.',
+                'SYSTEM'
+            );
+        end if;
+        select * into v_session from public.sessions where id = v_session.id;
+    end if;
+
+    select coalesce(
+        jsonb_agg(to_jsonb(t) order by t.joined_at),
+        '[]'::jsonb
+    ) into v_teams
+    from public.teams t
+    where t.session_id = v_session.id;
+
+    select coalesce(
+        jsonb_agg(to_jsonb(s) order by s.slot_number),
+        '[]'::jsonb
+    ) into v_slots
+    from public.session_questions s
+    where s.session_id = v_session.id;
+
+    select coalesce(
+        jsonb_agg(to_jsonb(a) order by a.answered_at),
+        '[]'::jsonb
+    ) into v_answers
+    from public.answers a
+    where a.session_id = v_session.id;
+
+    if v_session.game_mode = 'SNAKES' then
+        select coalesce(
+            jsonb_agg(to_jsonb(m) order by m.created_at),
+            '[]'::jsonb
+        ) into v_moves
+        from public.moves m
+        where m.session_id = v_session.id;
+
+        select coalesce(
+            jsonb_agg(
+                jsonb_build_object(
+                    'slot_number', s.slot_number,
+                    'question_id', s.question_id,
+                    'type', q.type,
+                    'difficulty', q.difficulty,
+                    'points', q.points
+                )
+                order by s.slot_number
+            ),
+            '[]'::jsonb
+        ) into v_slot_info
+        from public.session_questions s
+        join public.questions q on q.id = s.question_id
+        where s.session_id = v_session.id;
+    else
+        v_moves := '[]'::jsonb;
+        v_slot_info := '[]'::jsonb;
+    end if;
+
+    select coalesce(
+        jsonb_agg(to_jsonb(l) order by l.created_at),
+        '[]'::jsonb
+    ) into v_logs
+    from (
+        select *
+        from public.activity_logs
+        where session_id = v_session.id
+          and kind in ('ERROR', 'SYSTEM')
+        order by created_at desc
+        limit 50
+    ) l;
+
+    if p_team_id is null then
+        v_attempts := '[]'::jsonb;
+    else
+        select coalesce(
+            jsonb_agg(to_jsonb(a) order by a.slot_number),
+            '[]'::jsonb
+        ) into v_attempts
+        from public.slot_attempts a
+        where a.session_id = v_session.id
+          and a.team_id = p_team_id;
+    end if;
+
+    return jsonb_build_object(
+        'session', to_jsonb(v_session),
+        'teams', v_teams,
+        'slots', v_slots,
+        'answers', v_answers,
+        'moves', v_moves,
+        'slotInfo', v_slot_info,
+        'logs', v_logs,
+        'attempts', v_attempts,
+        'serverTime', now()
+    );
+end $$;
+
+-- 5d. Buat sesi + snapshot soal + log sistem dalam satu transaksi.
+create or replace function public.create_session(
+    p_code text,
+    p_group_id uuid,
+    p_duration int,
+    p_game_mode text,
+    p_board_config jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_group public.question_groups;
+    v_session public.sessions;
+    v_count int;
+begin
+    select * into v_group from public.question_groups where id = p_group_id;
+    if v_group.id is null then raise exception 'Group soal tidak ditemukan'; end if;
+
+    insert into public.sessions (
+        session_code, group_id, subject_name, duration_minutes,
+        status, is_active, game_mode, board_config
+    ) values (
+        upper(trim(p_code)), v_group.id, v_group.subject, p_duration,
+        'LOBBY', true, p_game_mode, p_board_config
+    )
+    returning * into v_session;
+
+    insert into public.session_questions (session_id, slot_number, question_id)
+    select
+        v_session.id,
+        cast(row_number() over (order by q.created_at, q.id) as int),
+        q.id
+    from public.questions q
+    where q.group_id = v_group.id;
+
+    get diagnostics v_count = row_count;
+    if v_count = 0 then
+        raise exception 'Group soal kosong. Impor soal terlebih dahulu.';
+    end if;
+
+    insert into public.activity_logs (session_id, team_id, message, kind)
+    values (
+        v_session.id,
+        null,
+        'Sesi ' || v_session.session_code || ' dibuat untuk ' || v_group.subject,
+        'SYSTEM'
+    );
+
+    return to_jsonb(v_session);
+end $$;
+
+-- 5e. Catat perpindahan fokus/tab sebagai peringatan kecurangan.
+create or replace function public.report_focus_event(
+    p_session_code text,
+    p_team_id uuid,
+    p_away_ms int,
+    p_reason text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_session public.sessions;
+    v_team public.teams;
+    v_message text;
+begin
+    select * into v_session from public.sessions
+        where session_code = upper(trim(p_session_code));
+    if v_session.id is null then return; end if;
+    if v_session.status <> 'PLAYING' then return; end if;
+    if v_session.started_at is not null
+        and now() > v_session.started_at + (v_session.duration_minutes || ' minutes')::interval
+    then
+        return;
+    end if;
+
+    select * into v_team from public.teams
+        where id = p_team_id and session_id = v_session.id;
+    if v_team.id is null then return; end if;
+
+    if p_reason = 'leave' then
+        v_message := '[PERINGATAN] Tim ' || v_team.team_name
+            || ' meninggalkan tab permainan';
+    elsif p_reason = 'return' then
+        v_message := '[PERINGATAN] Tim ' || v_team.team_name
+            || ' kembali setelah meninggalkan tab selama '
+            || greatest(1, round(p_away_ms / 1000.0))::int || ' detik';
+    else
+        v_message := '[PERINGATAN] Tim ' || v_team.team_name
+            || ' keluar dari tab permainan';
+    end if;
+
+    insert into public.activity_logs (session_id, team_id, message, kind)
+    values (v_session.id, v_team.id, v_message, 'ERROR');
 end $$;
 
 -- 6. Hanya service role yang boleh memanggil RPC (cegah brute-force kunci jawaban)
 revoke all on function public.request_question(text, uuid, int) from public, anon, authenticated;
 revoke all on function public.submit_answer(text, uuid, int, text) from public, anon, authenticated;
 revoke all on function public.submit_move(text, uuid, int, text) from public, anon, authenticated;
+revoke all on function public.fetch_game_state(text, uuid) from public, anon, authenticated;
+revoke all on function public.create_session(text, uuid, int, text, jsonb) from public, anon, authenticated;
+revoke all on function public.report_focus_event(text, uuid, int, text) from public, anon, authenticated;
 revoke all on function public.broadcast_game_change() from public, anon, authenticated;
 revoke all on function public.normalize_answer(text) from public, anon, authenticated;
 grant execute on function public.request_question(text, uuid, int) to service_role;
 grant execute on function public.submit_answer(text, uuid, int, text) to service_role;
 grant execute on function public.submit_move(text, uuid, int, text) to service_role;
+grant execute on function public.fetch_game_state(text, uuid) to service_role;
+grant execute on function public.create_session(text, uuid, int, text, jsonb) to service_role;
+grant execute on function public.report_focus_event(text, uuid, int, text) to service_role;
 
 -- 7. Pengaturan aplikasi (API key Gemini, pilihan model)
 create table if not exists public.app_settings (

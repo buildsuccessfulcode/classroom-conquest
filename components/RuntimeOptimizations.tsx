@@ -1,17 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-
-function isLowEnd(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
+import { applyLitePreference } from "@/lib/lite";
 
 export default function RuntimeOptimizations() {
   useEffect(() => {
-    if (isLowEnd()) {
-      document.documentElement.dataset.lite = "true";
-    }
+    applyLitePreference();
   }, []);
 
   useEffect(() => {

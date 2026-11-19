@@ -120,6 +120,14 @@ export interface ActivityLog {
   created_at: string;
 }
 
+export interface SlotAttempt {
+  session_id: string;
+  team_id: string;
+  slot_number: number;
+  attempts: number;
+  last_attempt_at: string;
+}
+
 export interface Move {
   id: string;
   session_id: string;
@@ -150,6 +158,7 @@ export interface GameState {
   answers: Answer[];
   moves: Move[];
   slotInfo: SlotInfo[];
+  attempts: SlotAttempt[];
   logs: ActivityLog[];
   serverTime: string;
 }

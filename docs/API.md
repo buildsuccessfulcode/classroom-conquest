@@ -70,6 +70,11 @@ interface ActivityLog {
   message: string; kind: LogKind; created_at: string
 }
 
+interface SlotAttempt {
+  session_id: string; team_id: string; slot_number: number
+  attempts: number; last_attempt_at: string
+}
+
 interface Move {
   id: string; session_id: string; team_id: string; slot_number: number
   question_id: string; correct: boolean; points: number; delta: number
@@ -88,6 +93,7 @@ interface GameState {
   answers: Answer[]
   moves: Move[]
   slotInfo: SlotInfo[]
+  attempts: SlotAttempt[]
   logs: ActivityLog[]
   serverTime: string
 }
@@ -157,7 +163,7 @@ interface GeneratedQuestionBank {
 ```
 
 `requestQuestion` mengacak `metadata.options` dan `metadata.words` di server. `attemptsLeft`
-dihitung dari `activity_logs` (maks `MAX_ATTEMPTS_PER_SLOT`); `locked` menandakan nomor sudah
+dihitung dari `slot_attempts` (maks `MAX_ATTEMPTS_PER_SLOT`); `locked` menandakan nomor sudah
 terkunci untuk tim tersebut. `used` menandakan soal sudah dipakai di mode Ular Tangga.
 `correctAnswer` diisi bila `solved === true` atau (mode klasik) `locked === true` (mode review),
 yaitu saat tim tersebut sudah menjawab benar nomor itu atau percobaannya sudah habis; selain
@@ -165,7 +171,9 @@ itu `undefined`.
 
 Sejak optimasi, `requestQuestion`, `submitAnswer`, dan `submitMove` didelegasikan ke RPC
 Postgres (`request_question`, `submit_answer`, `submit_move`) sehingga hanya satu round-trip
-dan mutasi bersifat atomik. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh
+dan mutasi bersifat atomik. `fetchGameState` memakai RPC `fetch_game_state` (satu JSON untuk
+seluruh state), `createSession` memakai RPC `create_session`, dan `reportFocusEvent` memakai RPC
+`report_focus_event`. Kontrak input/output tetap sama. RPC hanya dapat dipanggil oleh
 `service_role`.
 
 `submitMove` hanya untuk sesi `game_mode = 'SNAKES'`. Hasilnya memuat `delta` (langkah total
@@ -187,8 +195,7 @@ bisa dipakai sekali per tim; jawaban salah tidak memindahkan bidak.
 | `listQuestionGroups` | — | `QuestionGroupSummary[]` |
 | `listGroupQuestions` | `groupId: string` | `Question[]` |
 | `joinTeam` | `{ sessionCode, teamName, avatar? }` | `JoinTeamResult` |
-| `getSessionPreview` | `sessionCode: string` | `{ mode, status } \| null` |
-| `fetchGameState` | `sessionCode: string` | `GameState \| null` |
+| `fetchGameState` | `sessionCode: string, teamId?: string \| null` | `GameState \| null` |
 | `requestQuestion` | `{ sessionCode, teamId, slotNumber }` | `SlotQuestion` |
 | `submitAnswer` | `{ sessionCode, teamId, slotNumber, answer }` | `AnswerResult` |
 | `submitMove` | `{ sessionCode, teamId, slotNumber, answer }` | `AnswerResult` |
@@ -236,35 +243,39 @@ const res = await submitAnswer({ sessionCode: code, teamId, slotNumber: 2, answe
   dapat ditampilkan di klien.
 - `requestQuestion` / `submitAnswer` menolak bila sesi belum `PLAYING`, waktu habis, atau nomor
   tidak valid.
-- `requestQuestion` / `submitAnswer` menolak dengan `"Terlalu banyak permintaan. Tunggu sebentar."`
-  bila melewati rate limit per tim (`RATE_LIMIT_MAX_REQUESTS` per `RATE_LIMIT_WINDOW_MS`).
-- `submitAnswer` hanya menyimpan jawaban benar; percobaan salah dicatat di log lengkap dengan
-  nomor percobaan.
+- `requestQuestion` / `submitAnswer` / `submitMove` menolak dengan `"Terlalu banyak permintaan. Tunggu sebentar."`
+  bila melewati rate limit per tim. Bucket terpisah: request, answer, move, focus; batas gameplay
+  lebih longgar dari batas umum.
+- `submitAnswer` hanya menyimpan jawaban benar; percobaan salah menaikkan `slot_attempts` dan
+  tidak menulis log.
 - `submitAnswer` mengembalikan `{ locked: true }` (bukan throw) bila nomor sudah terkunci setelah
   `MAX_ATTEMPTS_PER_SLOT` percobaan salah.
 - Jawaban benar dengan indikasi mencurigakan (hampir habis percobaan atau terlalu cepat)
-  menambah `activity_logs` kind `ERROR` berawalan `[PERINGATAN]`.
+  menambah `activity_logs` kind `ERROR` berawalan `[PERINGATAN]`. Log jawaban benar/salah biasa
+  tidak lagi ditulis.
 - `reportFocusEvent` dipanggil klien saat tim meninggalkan tab permainan (`reason: "leave"`),
   kembali setelah pergi ≥ 10 detik (`reason: "return"`), atau keluar/menutup tab
   (`reason: "exit"`). Setiap laporan menambah `activity_logs` kind `ERROR` berawalan
-  `[PERINGATAN]`. Bila sesi tidak `PLAYING`, waktu habis, atau tim tidak terdaftar, action ini
+  `[PERINGATAN]`. Bila sesi tidak `PLAYING`, waktu habis, atau tim tidak terdaftar, RPC ini
   diam (tidak throw) agar tidak mengganggu permainan.
 - `deleteQuestionGroup` / `deleteQuestion` menolak bila group/soal sedang dipakai sesi
   (`"Group sedang dipakai sesi..."` / `"Soal sedang dipakai sesi..."`).
 
 ## 4. Snapshot Nomor Soal
 
-`createSession` memanggil `ensureSlots`: mengambil seluruh soal dalam group (`order by created_at,
-id`), lalu membuat `session_questions` bernomor `1..N`. `startSession` dan `resetSession` tidak
-mengubah snapshot. Jika group kosong, action melempar error. `resetSession` menghapus tim,
-jawaban, dan log, lalu mengembalikan sesi ke `LOBBY` (`started_at = null`) sehingga guru harus
-menekan **Mulai** lagi.
+`createSession` memanggil RPC `create_session`: insert sesi + mengambil seluruh soal dalam group
+(`order by created_at, id`) untuk membuat `session_questions` bernomor `1..N` + log `SYSTEM`,
+dalam satu transaksi. `startSession` dan `resetSession` tidak mengubah snapshot. Jika group
+kosong, RPC melempar error dan sesi tidak dibuat. `resetSession` menghapus tim, jawaban, moves,
+`slot_attempts`, dan log, lalu mengembalikan sesi ke `LOBBY` (`started_at = null`) sehingga guru
+harus menekan **Mulai** lagi.
 
 ## 5. Dukungan Demo
 
 `lib/backend.ts` mengekspor fungsi dengan tanda tangan sama. Bila Supabase tidak dikonfigurasi,
-implementasi `lib/demo/engine.ts` (kunci `classroom-conquest:demo:v4`, dengan fallback baca
-`v3`) yang dipakai.
+implementasi `lib/demo/engine.ts` (kunci `classroom-conquest:demo:v5`, dengan fallback baca
+`v4`/`v3`) yang dipakai. Saat migrasi dari versi lama, `slot_attempts` dihitung ulang dari log
+percobaan salah yang tersimpan.
 
 - Data demo tersimpan di `localStorage` browser (satu perangkat).
 - Sinkronisasi antar-tab memakai `BroadcastChannel`.
@@ -279,15 +290,19 @@ type RealtimeEvent =
   | { type: 'answer.created'; answer: Answer }
   | { type: 'team.joined'; team: Team }
   | { type: 'team.moved'; team: Team }
+  | { type: 'move.created'; move: Move }
+  | { type: 'attempt.updated'; attempt: SlotAttempt }
   | { type: 'session.updated'; session: Session }
   | { type: 'log.created'; log: ActivityLog }
   | { type: 'refresh' }
 ```
 
 Mode Supabase memakai Broadcast (`answer.created`, `team.joined`, `team.moved`,
-`session.updated`, `log.created`); mode demo
-selalu memancarkan `{ type: 'refresh' }`. `useGameState` menerapkan delta untuk `answer.created`
-dan `team.joined`, memperbarui `session.updated`, lalu menjadwalkan rekonsiliasi terkoalesi.
+`move.created`, `attempt.updated`, `session.updated`, `log.created`); mode demo
+memancarkan `{ type: 'refresh' }` yang di-throttle oleh `useGameState`. `useGameState`
+menerapkan semua delta, membatch event (~80 ms), dan hanya melakukan rekonsiliasi penuh saat
+interval/fokus/online/reset. `getSessionPreview` di mode Supabase dibaca langsung dari
+Supabase (anon, RLS SELECT) agar tidak mengantre di Server Action.
 
 ## 7. Integrasi AI (Gemini)
 

@@ -1,23 +1,29 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import { buildBoardStandings } from "@/lib/game";
-import type { BoardConfig, Move, Team } from "@/lib/types";
+import type { BoardConfig, BoardStanding, Move, Team } from "@/lib/types";
 
-export default function PressureBanner({
+function PressureBanner({
   teams,
   moves,
+  standings,
   config,
   status,
 }: {
   teams: Team[];
   moves: Move[];
+  standings?: BoardStanding[];
   config: BoardConfig;
   status: string;
 }) {
+  const entries = useMemo(
+    () => standings ?? buildBoardStandings(teams, moves),
+    [moves, standings, teams],
+  );
   if (status !== "PLAYING") return null;
-  const standings = buildBoardStandings(teams, moves);
-  const leader = standings[0];
-  const second = standings[1];
+  const leader = entries[0];
+  const second = entries[1];
   if (!leader || leader.finishedAt) return null;
   const goal = Math.max(1, config.goal);
   const duelGate = Math.ceil(goal * 0.8);
@@ -62,3 +68,5 @@ export default function PressureBanner({
     </div>
   );
 }
+
+export default memo(PressureBanner);

@@ -6,7 +6,6 @@ import {
   RATE_LIMIT_MAX_REQUESTS,
   RATE_LIMIT_WINDOW_MS,
   buildBoardConfig,
-  countWrongAttempts,
   goalFromQuestionCount,
   isAnswerCorrect,
   isRapidFire,
@@ -36,13 +35,17 @@ import type {
   SeedQuestion,
   Session,
   SessionSlot,
+  SlotAttempt,
   SlotInfo,
   SlotQuestion,
   Team,
 } from "../types";
 
-const STORAGE_KEY = "classroom-conquest:demo:v4";
-const LEGACY_STORAGE_KEY = "classroom-conquest:demo:v3";
+const STORAGE_KEY = "classroom-conquest:demo:v5";
+const LEGACY_STORAGE_KEYS = [
+  "classroom-conquest:demo:v4",
+  "classroom-conquest:demo:v3",
+];
 const CHANNEL_NAME = "classroom-conquest-demo";
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -70,6 +73,7 @@ interface DemoDB {
   slots: SessionSlot[];
   answers: Answer[];
   moves: Move[];
+  attempts: SlotAttempt[];
   logs: ActivityLog[];
 }
 
@@ -98,11 +102,53 @@ function emptyDB(): DemoDB {
     slots: [],
     answers: [],
     moves: [],
+    attempts: [],
     logs: [],
   };
 }
 
+function deriveLegacyAttempts(logs: ActivityLog[]): SlotAttempt[] {
+  const map = new Map<
+    string,
+    { attempt: SlotAttempt; best: number; last: string }
+  >();
+  for (const log of logs) {
+    if (log.kind !== "INFO" || !log.team_id) continue;
+    const match = log.message.match(
+      /menjawab salah nomor (\d+) \(percobaan (\d+)\/\d+\)/,
+    );
+    if (!match) continue;
+    const slotNumber = Number(match[1]);
+    const attempts = Number(match[2]);
+    if (!Number.isInteger(slotNumber) || !Number.isInteger(attempts)) continue;
+    const key = `${log.session_id}:${log.team_id}:${slotNumber}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.best = Math.max(existing.best, attempts);
+      if (log.created_at > existing.last) existing.last = log.created_at;
+    } else {
+      map.set(key, {
+        best: attempts,
+        last: log.created_at,
+        attempt: {
+          session_id: log.session_id,
+          team_id: log.team_id,
+          slot_number: slotNumber,
+          attempts,
+          last_attempt_at: log.created_at,
+        },
+      });
+    }
+  }
+  return [...map.values()].map(({ attempt, best, last }) => ({
+    ...attempt,
+    attempts: best,
+    last_attempt_at: last,
+  }));
+}
+
 function normalizeDB(parsed: Partial<DemoDB>): DemoDB {
+  const logs = parsed.logs ?? [];
   return {
     sessions: (parsed.sessions ?? []).map((session) => ({
       ...session,
@@ -120,15 +166,24 @@ function normalizeDB(parsed: Partial<DemoDB>): DemoDB {
     slots: parsed.slots ?? [],
     answers: parsed.answers ?? [],
     moves: parsed.moves ?? [],
-    logs: parsed.logs ?? [],
+    attempts: parsed.attempts?.length
+      ? parsed.attempts
+      : deriveLegacyAttempts(logs),
+    logs: logs.filter(
+      (log) => log.kind === "ERROR" || log.kind === "SYSTEM",
+    ),
   };
 }
 
 function load(): DemoDB {
   if (typeof window === "undefined") return emptyDB();
-  const raw =
-    window.localStorage.getItem(STORAGE_KEY) ??
-    window.localStorage.getItem(LEGACY_STORAGE_KEY);
+  let raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    for (const key of LEGACY_STORAGE_KEYS) {
+      raw = window.localStorage.getItem(key);
+      if (raw) break;
+    }
+  }
   if (!raw) return emptyDB();
   try {
     const parsed = JSON.parse(raw) as Partial<DemoDB>;
@@ -176,18 +231,48 @@ function withShuffledChoices(question: PublicQuestion): PublicQuestion {
   return { ...question, metadata: next };
 }
 
-function countWrongAttemptsForSlot(
+function attemptCount(
   db: DemoDB,
   sessionId: string,
   teamId: string,
   slotNumber: number,
 ): number {
-  return countWrongAttempts(
-    db.logs.filter(
-      (log) => log.session_id === sessionId && log.team_id === teamId,
-    ),
-    slotNumber,
+  return (
+    db.attempts.find(
+      (attempt) =>
+        attempt.session_id === sessionId &&
+        attempt.team_id === teamId &&
+        attempt.slot_number === slotNumber,
+    )?.attempts ?? 0
   );
+}
+
+function addWrongAttempt(
+  db: DemoDB,
+  sessionId: string,
+  teamId: string,
+  slotNumber: number,
+): number {
+  const existing = db.attempts.find(
+    (attempt) =>
+      attempt.session_id === sessionId &&
+      attempt.team_id === teamId &&
+      attempt.slot_number === slotNumber,
+  );
+  if (existing) {
+    existing.attempts += 1;
+    existing.last_attempt_at = nowIso();
+    return existing.attempts;
+  }
+  const attempts = 1;
+  db.attempts.push({
+    session_id: sessionId,
+    team_id: teamId,
+    slot_number: slotNumber,
+    attempts,
+    last_attempt_at: nowIso(),
+  });
+  return attempts;
 }
 
 function addLog(
@@ -383,13 +468,13 @@ export async function joinTeam(input: {
     joined_at: nowIso(),
   };
   db.teams.push(team);
-  addLog(db, session.id, team.id, `Tim ${team.team_name} bergabung`, "JOIN");
   save(db);
   return { ok: true, team };
 }
 
 export async function fetchGameState(
   sessionCode: string,
+  teamId?: string | null,
 ): Promise<GameState | null> {
   const db = load();
   const session = findSession(db, sessionCode);
@@ -439,8 +524,18 @@ export async function fetchGameState(
       .filter((move) => move.session_id === session.id)
       .sort((a, b) => a.created_at.localeCompare(b.created_at)),
     slotInfo,
+    attempts: teamId
+      ? db.attempts.filter(
+          (attempt) =>
+            attempt.session_id === session.id && attempt.team_id === teamId,
+        )
+      : [],
     logs: db.logs
-      .filter((l) => l.session_id === session.id)
+      .filter(
+        (l) =>
+          l.session_id === session.id &&
+          (l.kind === "ERROR" || l.kind === "SYSTEM"),
+      )
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
       .slice(-50),
     serverTime: nowIso(),
@@ -481,7 +576,7 @@ export async function requestQuestion(input: {
       move.team_id === team.id &&
       move.slot_number === input.slotNumber,
   );
-  const wrongAttempts = countWrongAttemptsForSlot(
+  const wrongAttempts = attemptCount(
     db,
     session.id,
     team.id,
@@ -528,7 +623,7 @@ export async function submitAnswer(input: {
       a.slot_number === input.slotNumber,
   );
   if (solved) throw new Error("Soal ini sudah Anda jawab benar");
-  const priorWrong = countWrongAttemptsForSlot(
+  const priorWrong = attemptCount(
     db,
     session.id,
     team.id,
@@ -548,13 +643,7 @@ export async function submitAnswer(input: {
   if (!isAnswerCorrect(question, input.answer)) {
     const attempt = priorWrong + 1;
     const attemptsLeft = Math.max(0, MAX_ATTEMPTS_PER_SLOT - attempt);
-    addLog(
-      db,
-      session.id,
-      team.id,
-      `Tim ${team.team_name} menjawab salah nomor ${input.slotNumber} (percobaan ${attempt}/${MAX_ATTEMPTS_PER_SLOT})`,
-      "INFO",
-    );
+    addWrongAttempt(db, session.id, team.id, input.slotNumber);
     save(db);
     return {
       correct: false,
@@ -587,13 +676,6 @@ export async function submitAnswer(input: {
     answered_at: nowIso(),
   });
   team.score += gained;
-  addLog(
-    db,
-    session.id,
-    team.id,
-    `Tim ${team.team_name} menjawab benar nomor ${input.slotNumber} (+${gained})`,
-    "CLAIM",
-  );
   if (priorWrong >= MAX_ATTEMPTS_PER_SLOT - 1 || rapidFire) {
     addLog(
       db,
@@ -701,14 +783,6 @@ export async function submitMove(input: {
   } else {
     message = `Jawaban belum tepat. Bidak tetap di petak ${from}, soal hangus.`;
   }
-
-  addLog(
-    db,
-    session.id,
-    team.id,
-    `Tim ${team.team_name}: ${message}`,
-    correct ? "CLAIM" : "INFO",
-  );
 
   if (finished) {
     session.status = "ENDED";
@@ -883,6 +957,7 @@ export async function resetSession(sessionCode: string): Promise<void> {
   if (!session) throw new Error("Sesi tidak ditemukan");
   db.answers = db.answers.filter((a) => a.session_id !== session.id);
   db.moves = db.moves.filter((move) => move.session_id !== session.id);
+  db.attempts = db.attempts.filter((a) => a.session_id !== session.id);
   db.logs = db.logs.filter((l) => l.session_id !== session.id);
   db.teams = db.teams.filter((t) => t.session_id !== session.id);
   session.status = "LOBBY";

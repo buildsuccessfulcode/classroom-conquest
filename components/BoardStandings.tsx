@@ -1,25 +1,31 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import { buildBoardStandings } from "@/lib/game";
-import type { BoardConfig, Move, Team } from "@/lib/types";
+import type { BoardConfig, BoardStanding, Move, Team } from "@/lib/types";
 import Avatar from "./Avatar";
 import { CrownIcon, FlagIcon } from "./icons";
 
-export default function BoardStandings({
+function BoardStandings({
   teams,
   config,
   moves,
+  standings,
   highlightTeamId,
   compact = false,
 }: {
   teams: Team[];
   config: BoardConfig;
   moves?: Move[];
+  standings?: BoardStanding[];
   highlightTeamId?: string;
   compact?: boolean;
 }) {
-  const standings = buildBoardStandings(teams, moves);
-  if (standings.length === 0) {
+  const entries = useMemo(
+    () => standings ?? buildBoardStandings(teams, moves),
+    [moves, standings, teams],
+  );
+  if (entries.length === 0) {
     return (
       <p className="rounded-2xl bg-snow px-4 py-6 text-center text-sm font-bold text-ink-soft">
         Belum ada tim yang bergabung.
@@ -28,7 +34,7 @@ export default function BoardStandings({
   }
   return (
     <ol className="flex flex-col gap-2">
-      {standings.map((entry) => (
+      {entries.map((entry) => (
         <li
           key={entry.team.id}
           className={[
@@ -71,3 +77,5 @@ export default function BoardStandings({
     </ol>
   );
 }
+
+export default memo(BoardStandings);

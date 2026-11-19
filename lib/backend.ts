@@ -20,10 +20,12 @@ import type {
   GenerateQuestionsInput,
   GeminiModel,
   JoinTeamResult,
+  Move,
   Question,
   QuestionGroupSummary,
   SeedQuestion,
   Session,
+  SlotAttempt,
   SlotQuestion,
   Team,
 } from "./types";
@@ -34,6 +36,8 @@ export type RealtimeEvent =
   | { type: "answer.created"; answer: Answer }
   | { type: "team.joined"; team: Team }
   | { type: "team.moved"; team: Team }
+  | { type: "move.created"; move: Move }
+  | { type: "attempt.updated"; attempt: SlotAttempt }
   | { type: "session.updated"; session: Session }
   | { type: "log.created"; log: ActivityLog }
   | { type: "refresh" };
@@ -84,15 +88,27 @@ export async function getSessionPreview(sessionCode: string): Promise<{
   mode: GameMode;
   status: string;
 } | null> {
-  if (isSupabaseConfigured()) return actions.getSessionPreview(sessionCode);
-  return demo.getSessionPreview(sessionCode);
+  const code = sessionCode.trim().toUpperCase();
+  if (!code) return null;
+  if (!isSupabaseConfigured()) return demo.getSessionPreview(code);
+  const { getBrowserClient } = await import("./supabase/client");
+  const { data, error } = await getBrowserClient()
+    .from("sessions")
+    .select("game_mode, status")
+    .eq("session_code", code)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const row = data as { game_mode: GameMode; status: string } | null;
+  if (!row) return null;
+  return { mode: row.game_mode, status: row.status };
 }
 
 export async function fetchGameState(
   sessionCode: string,
+  teamId?: string | null,
 ): Promise<GameState | null> {
-  if (isSupabaseConfigured()) return actions.fetchGameState(sessionCode);
-  return demo.fetchGameState(sessionCode);
+  if (isSupabaseConfigured()) return actions.fetchGameState(sessionCode, teamId);
+  return demo.fetchGameState(sessionCode, teamId);
 }
 
 export async function requestQuestion(input: {
@@ -244,6 +260,16 @@ export async function subscribe(
     .on("broadcast", { event: "team.moved" }, ({ payload }) => {
       const team = (payload as { team?: Team } | null)?.team;
       onEvent(team ? { type: "team.moved", team } : { type: "refresh" });
+    })
+    .on("broadcast", { event: "move.created" }, ({ payload }) => {
+      const move = (payload as { move?: Move } | null)?.move;
+      onEvent(move ? { type: "move.created", move } : { type: "refresh" });
+    })
+    .on("broadcast", { event: "attempt.updated" }, ({ payload }) => {
+      const attempt = (payload as { attempt?: SlotAttempt } | null)?.attempt;
+      onEvent(
+        attempt ? { type: "attempt.updated", attempt } : { type: "refresh" },
+      );
     })
     .on("broadcast", { event: "session.updated" }, ({ payload }) => {
       const session = (payload as { session?: Session } | null)?.session;

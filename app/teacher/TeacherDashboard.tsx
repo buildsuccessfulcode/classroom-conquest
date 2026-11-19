@@ -1,24 +1,39 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { logoutTeacher } from "@/app/actions";
 import ActivityLog from "@/components/ActivityLog";
-import AiSettingsPanel from "@/components/AiSettingsPanel";
 import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
 import Leaderboard from "@/components/Leaderboard";
-import SnakesBoard from "@/components/SnakesBoard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
-import QuestionBankImporter, {
-  type ImporterSeed,
-} from "@/components/QuestionBankImporter";
+import type { ImporterSeed } from "@/components/QuestionBankImporter";
 import QuestionBoard from "@/components/QuestionBoard";
-import QuestionGenerator from "@/components/QuestionGenerator";
-import QuestionGroupList from "@/components/QuestionGroupList";
 import TimeWarningBanner from "@/components/TimeWarningBanner";
+
+const AiSettingsPanel = dynamic(
+  () => import("@/components/AiSettingsPanel"),
+  { ssr: false },
+);
+const QuestionBankImporter = dynamic(
+  () => import("@/components/QuestionBankImporter"),
+  { ssr: false },
+);
+const QuestionGenerator = dynamic(
+  () => import("@/components/QuestionGenerator"),
+  { ssr: false },
+);
+const QuestionGroupList = dynamic(
+  () => import("@/components/QuestionGroupList"),
+  { ssr: false },
+);
+const SnakesBoard = dynamic(() => import("@/components/SnakesBoard"), {
+  ssr: false,
+});
 import {
   ArrowLeftIcon,
   BookIcon,
@@ -43,6 +58,7 @@ import {
 import { formatDateTime } from "@/lib/format";
 import {
   boardLinkTargets,
+  buildBoardStandings,
   goalFromQuestionCount,
   minQuestionsForBoard,
 } from "@/lib/game";
@@ -77,9 +93,15 @@ const STATUS_STYLE: Record<string, string> = {
   ENDED: "bg-cloud text-ink-soft",
 };
 
-export default function TeacherDashboard() {
+export default function TeacherDashboard({
+  initialSessions = null,
+  initialGroups = null,
+}: {
+  initialSessions?: Session[] | null;
+  initialGroups?: QuestionGroupSummary[] | null;
+}) {
   const router = useRouter();
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(initialSessions ?? []);
   const selectedCode = useStoredValue(TEACHER_CODE_KEY);
   const setSelectedCode = useCallback((code: string | null) => {
     writeStoredValue(TEACHER_CODE_KEY, code);
@@ -95,8 +117,10 @@ export default function TeacherDashboard() {
   const [boardPreset, setBoardPreset] = useState<BoardPreset>("NORMAL");
   const [boardGoal, setBoardGoal] = useState("auto");
   const [finishRule, setFinishRule] = useState<FinishRule>("OVERSHOOT");
-  const [groups, setGroups] = useState<QuestionGroupSummary[]>([]);
-  const [groupsLoaded, setGroupsLoaded] = useState(false);
+  const [groups, setGroups] = useState<QuestionGroupSummary[]>(
+    initialGroups ?? [],
+  );
+  const [groupsLoaded, setGroupsLoaded] = useState(initialGroups !== null);
   const [groupId, setGroupId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -116,7 +140,13 @@ export default function TeacherDashboard() {
       ? boardLinkTargets(previewGoal, boardPreset)
       : null;
 
-  const { state, loading, error: stateError, reload } = useGameState(selectedCode);
+  const { state, loading, error: stateError, reload } = useGameState(
+    tab === "sesi" ? selectedCode : null,
+  );
+  const standings = useMemo(
+    () => (state ? buildBoardStandings(state.teams, state.moves) : []),
+    [state],
+  );
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -137,21 +167,33 @@ export default function TeacherDashboard() {
   }, []);
 
   useEffect(() => {
+    if (initialSessions !== null && initialGroups !== null) return;
     void (async () => {
-      try {
-        setSessions(await listSessions());
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Gagal memuat sesi");
+      const [sessionsResult, groupsResult] = await Promise.allSettled([
+        listSessions(),
+        listQuestionGroups(),
+      ]);
+      if (sessionsResult.status === "fulfilled") {
+        setSessions(sessionsResult.value);
+      } else {
+        setError(
+          sessionsResult.reason instanceof Error
+            ? sessionsResult.reason.message
+            : "Gagal memuat sesi",
+        );
       }
-      try {
-        setGroups(await listQuestionGroups());
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Gagal memuat group soal");
-      } finally {
-        setGroupsLoaded(true);
+      if (groupsResult.status === "fulfilled") {
+        setGroups(groupsResult.value);
+      } else {
+        setError(
+          groupsResult.reason instanceof Error
+            ? groupsResult.reason.message
+            : "Gagal memuat group soal",
+        );
       }
+      setGroupsLoaded(true);
     })();
-  }, []);
+  }, [initialGroups, initialSessions]);
 
   const run = useCallback(async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -204,8 +246,7 @@ export default function TeacherDashboard() {
         await deleteSession(selectedCode);
         setSelectedCode(null);
       }
-      await refreshSessions();
-      await reload();
+      await Promise.all([refreshSessions(), reload()]);
     });
   };
 
@@ -634,6 +675,7 @@ export default function TeacherDashboard() {
                               teams={state.teams}
                               config={state.session.board_config}
                               moves={state.moves}
+                              standings={standings}
                             />
                           </div>
                           <div>

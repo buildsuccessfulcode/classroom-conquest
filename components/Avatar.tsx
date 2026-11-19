@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { isAvatarId } from "@/lib/avatars";
 
 function Face({ id }: { id: string }) {
@@ -120,7 +121,7 @@ function Face({ id }: { id: string }) {
   );
 }
 
-export default function Avatar({
+function Avatar({
   id,
   size = 40,
   ringColor,
@@ -152,3 +153,5 @@ export default function Avatar({
     </span>
   );
 }
+
+export default memo(Avatar);

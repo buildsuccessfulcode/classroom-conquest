@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 export type MascotMood =
   | "idle"
   | "happy"
@@ -143,7 +145,7 @@ function Face({ mood }: { mood: MascotMood }) {
   );
 }
 
-export default function Mascot({
+function Mascot({
   mood = "idle",
   size = 160,
   className = "",
@@ -225,3 +227,5 @@ export default function Mascot({
     </svg>
   );
 }
+
+export default memo(Mascot);

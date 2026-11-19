@@ -1,20 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ActivityLog from "@/components/ActivityLog";
 import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
 import Leaderboard from "@/components/Leaderboard";
-import PressureBanner from "@/components/PressureBanner";
-import SnakesBoard from "@/components/SnakesBoard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
 import QuestionBoard from "@/components/QuestionBoard";
 import Skeleton from "@/components/Skeleton";
 import TeamLeaveAlert from "@/components/TeamLeaveAlert";
 import TimeWarningBanner from "@/components/TimeWarningBanner";
+
+const PressureBanner = dynamic(() => import("@/components/PressureBanner"), {
+  ssr: false,
+});
+const SnakesBoard = dynamic(() => import("@/components/SnakesBoard"), {
+  ssr: false,
+});
 import {
   ArrowLeftIcon,
   CrownIcon,
@@ -48,6 +54,10 @@ function DisplayInner() {
     initialCode || null,
   );
   const { state, loading, error, reload } = useGameState(activeCode);
+  const standings = useMemo(
+    () => (state ? buildBoardStandings(state.teams, state.moves) : []),
+    [state],
+  );
   const soundPref = useStoredValue(SOUND_STORAGE_KEY);
   const soundOn = soundPref !== "off";
   const [alert, setAlert] = useState<{
@@ -147,10 +157,7 @@ function DisplayInner() {
     state && !isSnakes && totalSlots > 0
       ? buildLeaderboard(state.teams, state.answers, totalSlots)[0]
       : undefined;
-  const snakeChampion =
-    state && isSnakes
-      ? buildBoardStandings(state.teams, state.moves)[0]
-      : undefined;
+  const snakeChampion = state && isSnakes ? standings[0] : undefined;
   const championTeam = snakeChampion?.team ?? classicChampion?.team;
 
   return (
@@ -223,6 +230,7 @@ function DisplayInner() {
         <PressureBanner
           teams={state.teams}
           moves={state.moves}
+          standings={standings}
           config={boardConfig}
           status={state.session.status}
         />
@@ -310,6 +318,7 @@ function DisplayInner() {
                   teams={state.teams}
                   config={boardConfig}
                   moves={state.moves}
+                  standings={standings}
                 />
               ) : (
                 <Leaderboard

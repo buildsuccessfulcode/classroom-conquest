@@ -134,6 +134,16 @@ docs/ plans/
 - [x] Perbarui CONTEXT, ARCHITECTURE, DATABASE, API, SETUP, PROMPT_GENERATE_SOAL, plans.
 - [x] Verifikasi `npm run lint`, `npx tsc --noEmit`, `npm run build`.
 
+### Fase 7 — Optimasi performa lanjutan
+- [x] `slot_attempts` menggantikan parsing log; `activity_logs` hanya `ERROR`/`SYSTEM`.
+- [x] RPC `fetch_game_state`, `create_session`, `report_focus_event`; `submit_move` mengembalikan
+  `createdAt`.
+- [x] Broadcast `move.created` dan `attempt.updated`; rekonsiliasi 20 detik.
+- [x] `useGameState` membatch event (~80 ms) dan tidak full reload per event.
+- [x] `history.replaceState` untuk `?slot=`; lazy-load komponen mode/tab; memo komponen berat.
+- [x] Deteksi perangkat lemah + toggle Mode Ringan; preconnect Supabase; cache Intl.
+- [x] Verifikasi `npm run lint`, `npx tsc --noEmit`, `npm run build`.
+
 ## 5. Rencana Lanjutan (opsional)
 
 - QR code di `/display` menuju `/play?code=XXXXXX` dan `/play` membaca `?code=`.

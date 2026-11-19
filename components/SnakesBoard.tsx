@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useBoardWalk } from "@/hooks/useBoardWalk";
 import { teamAbbreviation } from "@/lib/game";
 import type { BoardConfig, BoardLink, Move, Team } from "@/lib/types";
@@ -293,7 +293,7 @@ function SnakeMark({ mini }: { mini: boolean }) {
   );
 }
 
-function Ladder({
+const Ladder = memo(function Ladder({
   link,
   columns,
   rows,
@@ -350,9 +350,9 @@ function Ladder({
       })}
     </g>
   );
-}
+});
 
-function Snake({
+const Snake = memo(function Snake({
   link,
   columns,
   rows,
@@ -439,9 +439,9 @@ function Snake({
       />
     </g>
   );
-}
+});
 
-export default function SnakesBoard({
+function SnakesBoard({
   config,
   teams,
   moves = [],
@@ -465,7 +465,10 @@ export default function SnakesBoard({
   className?: string;
 }) {
   const goal = Math.max(1, config.goal);
-  const { columns, rows, total } = boardGeometry(goal);
+  const { columns, rows, total } = useMemo(
+    () => boardGeometry(goal),
+    [goal],
+  );
   const mini = variant === "mini";
   const pawnSize = mini ? 18 : columns >= 10 ? 20 : 30;
   const motions = useBoardWalk({
@@ -479,14 +482,23 @@ export default function SnakesBoard({
   });
   const animatedIds = new Set(Object.keys(motions));
 
-  const cells: (number | null)[] = Array(total).fill(null);
-  for (let tile = 1; tile <= goal; tile += 1) {
-    const cell = tileToCell(tile, columns, rows);
-    cells[cell.row * columns + cell.col] = tile;
-  }
+  const cells = useMemo(() => {
+    const next: (number | null)[] = Array(total).fill(null);
+    for (let tile = 1; tile <= goal; tile += 1) {
+      const cell = tileToCell(tile, columns, rows);
+      next[cell.row * columns + cell.col] = tile;
+    }
+    return next;
+  }, [columns, goal, rows, total]);
 
-  const ladderBases = new Set(config.ladders.map((link) => link.from));
-  const snakeHeads = new Set(config.snakes.map((link) => link.from));
+  const ladderBases = useMemo(
+    () => new Set(config.ladders.map((link) => link.from)),
+    [config.ladders],
+  );
+  const snakeHeads = useMemo(
+    () => new Set(config.snakes.map((link) => link.from)),
+    [config.snakes],
+  );
   const atStart = teams.filter(
     (team) =>
       !animatedIds.has(team.id) && team.position <= 0 && !team.finished_at,
@@ -519,7 +531,7 @@ export default function SnakesBoard({
               <div
                 key={tile}
                 className={[
-                  "relative m-0.5 flex aspect-square flex-col items-center justify-between rounded-lg border-2 p-0.5",
+                  "cc-cv relative m-0.5 flex aspect-square flex-col items-center justify-between rounded-lg border-2 p-0.5",
                   isFinish
                     ? "border-sun-dark bg-sun-soft"
                     : isMine
@@ -685,3 +697,5 @@ export default function SnakesBoard({
     </div>
   );
 }
+
+export default memo(SnakesBoard);

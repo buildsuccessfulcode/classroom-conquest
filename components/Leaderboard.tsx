@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { buildLeaderboard } from "@/lib/game";
 import type { Answer, Team } from "@/lib/types";
 import { BoltIcon, CrownIcon } from "./icons";
@@ -38,7 +39,7 @@ const PODIUM_STYLE = [
   },
 ];
 
-export default function Leaderboard({
+function Leaderboard({
   teams,
   answers,
   totalSlots,
@@ -180,3 +181,5 @@ export default function Leaderboard({
     </div>
   );
 }
+
+export default memo(Leaderboard);

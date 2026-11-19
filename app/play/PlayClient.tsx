@@ -3,21 +3,16 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Avatar from "@/components/Avatar";
 import AvatarPicker from "@/components/AvatarPicker";
-import BoardStandings from "@/components/BoardStandings";
 import CountdownTimer from "@/components/CountdownTimer";
-import DiceRoll from "@/components/DiceRoll";
 import Leaderboard from "@/components/Leaderboard";
 import Mascot from "@/components/Mascot";
 import ModeBadge from "@/components/ModeBadge";
-import PressureBanner from "@/components/PressureBanner";
 import QuestionBoard from "@/components/QuestionBoard";
 import QuestionCard from "@/components/QuestionCard";
 import Skeleton from "@/components/Skeleton";
-import SnakesBoard from "@/components/SnakesBoard";
-import SnakesQuestionGrid from "@/components/SnakesQuestionGrid";
 import TeamProfile from "@/components/TeamProfile";
 import BadgeShelf from "@/components/BadgeShelf";
 import TimeWarningBanner from "@/components/TimeWarningBanner";
@@ -25,9 +20,24 @@ import TimeWarningBanner from "@/components/TimeWarningBanner";
 const AnswerFeedback = dynamic(() => import("@/components/AnswerFeedback"), {
   ssr: false,
 });
+const BoardStandings = dynamic(() => import("@/components/BoardStandings"), {
+  ssr: false,
+});
+const DiceRoll = dynamic(() => import("@/components/DiceRoll"), { ssr: false });
+const PressureBanner = dynamic(() => import("@/components/PressureBanner"), {
+  ssr: false,
+});
+const SnakesBoard = dynamic(() => import("@/components/SnakesBoard"), {
+  ssr: false,
+});
+const SnakesQuestionGrid = dynamic(
+  () => import("@/components/SnakesQuestionGrid"),
+  { ssr: false },
+);
 import { useGameState } from "@/hooks/useGameState";
 import { useFocusGuard } from "@/hooks/useFocusGuard";
 import { useStoredValue, writeStoredValue } from "@/hooks/useLocalStorage";
+import { useLiteMode } from "@/hooks/useLiteMode";
 import { useTeamIdentity } from "@/hooks/useTeamIdentity";
 import {
   getSessionPreview,
@@ -45,13 +55,13 @@ import {
 import {
   buildBoardStandings,
   buildLeaderboard,
-  countWrongAttemptsForTeam,
   MAX_ATTEMPTS_PER_SLOT,
   moveAnimationStart,
   remainingSeconds,
   stepRangeFor,
 } from "@/lib/game";
 import { serverNow } from "@/lib/clock";
+import { applyLitePreference, LITE_STORAGE_KEY } from "@/lib/lite";
 import { DEFAULT_AVATAR, type AvatarId } from "@/lib/avatars";
 import {
   BADGES,
@@ -113,7 +123,6 @@ export default function PlayClient() {
 
 function PlayInner() {
   const { identity, ready, save, clear } = useTeamIdentity();
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const slotParam = searchParams.get("slot");
@@ -133,11 +142,13 @@ function PlayInner() {
   );
   const soundPref = useStoredValue(SOUND_STORAGE_KEY);
   const soundOn = soundPref !== "off";
+  const liteOn = useLiteMode();
   const prevStatusRef = useRef<string | null>(null);
   const boardRef = useRef<HTMLElement | null>(null);
 
   const { state, loading, error: stateError, reload } = useGameState(
     identity?.sessionCode ?? null,
+    identity?.teamId ?? null,
   );
 
   useFocusGuard({
@@ -203,6 +214,12 @@ function PlayInner() {
     }
   };
 
+  const toggleLite = () => {
+    const next = !liteOn;
+    writeStoredValue(LITE_STORAGE_KEY, next ? "on" : "off");
+    applyLitePreference();
+  };
+
   const stats = useMemo(
     () => (state && identity ? teamStats(state, identity.teamId) : null),
     [state, identity],
@@ -210,22 +227,13 @@ function PlayInner() {
 
   const lockedSlots = useMemo(() => {
     if (!state || !identity) return [] as number[];
-    const solved = new Set(
-      state.answers
-        .filter((answer) => answer.team_id === identity.teamId)
-        .map((answer) => answer.slot_number),
-    );
-    const result: number[] = [];
-    for (let slot = 1; slot <= state.slots.length; slot += 1) {
-      if (solved.has(slot)) continue;
-      const wrong = countWrongAttemptsForTeam(
-        state.logs,
-        slot,
-        identity.teamId,
-      );
-      if (wrong >= MAX_ATTEMPTS_PER_SLOT) result.push(slot);
-    }
-    return result;
+    return state.attempts
+      .filter(
+        (attempt) =>
+          attempt.team_id === identity.teamId &&
+          attempt.attempts >= MAX_ATTEMPTS_PER_SLOT,
+      )
+      .map((attempt) => attempt.slot_number);
   }, [state, identity]);
 
   const isSnakes = state?.session.game_mode === "SNAKES";
@@ -241,6 +249,11 @@ function PlayInner() {
   }, [state, identity]);
   const standings = useMemo(
     () => (state ? buildBoardStandings(state.teams, state.moves) : []),
+    [state],
+  );
+  const board = useMemo(
+    () =>
+      state ? buildLeaderboard(state.teams, state.answers, state.slots.length) : [],
     [state],
   );
   const myStanding = standings.find(
@@ -299,7 +312,7 @@ function PlayInner() {
           return;
         }
         setTurn(request);
-        router.replace(`${pathname}?slot=${slotNumber}`, { scroll: false });
+        window.history.replaceState(null, "", `${pathname}?slot=${slotNumber}`);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Gagal mengambil soal";
@@ -310,13 +323,31 @@ function PlayInner() {
         setLoadingSlot(null);
       }
     },
-    [identity, pathname, reload, router, state],
+    [identity, pathname, reload, state],
   );
 
   const closeTurn = useCallback(() => {
     setTurn(null);
-    router.replace(pathname, { scroll: false });
-  }, [pathname, router]);
+    window.history.replaceState(null, "", pathname);
+  }, [pathname]);
+
+  const handleSelectSlot = useCallback(
+    (slotNumber: number) => {
+      void handleSelect(slotNumber);
+    },
+    [handleSelect],
+  );
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void import("@/components/AnswerFeedback");
+      if (isSnakes) {
+        void import("@/components/DiceRoll");
+        void import("@/components/SnakesBoard");
+      }
+    }, 1200);
+    return () => window.clearTimeout(id);
+  }, [isSnakes]);
 
   const focusBoard = useCallback(() => {
     const node = boardRef.current;
@@ -332,15 +363,15 @@ function PlayInner() {
 
   const handleLeaveRoom = useCallback(() => {
     clear();
-    restoredRef.current = false;
+    restoredRef.current = true;
     setTurn(null);
     setJoinCode("");
     setJoinName("");
     setJoinAvatar(DEFAULT_AVATAR);
     setJoinMode(null);
     setError(null);
-    router.replace(pathname, { scroll: false });
-  }, [clear, pathname, router]);
+    window.history.replaceState(null, "", pathname);
+  }, [clear, pathname]);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -409,24 +440,24 @@ function PlayInner() {
               closesAt,
             });
             haptic([10, 30, 10]);
-            const reloadPromise = reload();
             const wait = Math.max(0, closesAt - serverNow());
             await new Promise((resolve) => window.setTimeout(resolve, wait));
             setDiceRoll(null);
             playFeedback("correct");
             haptic([14, 40, 14]);
             window.requestAnimationFrame(focusBoard);
-            await reloadPromise;
           } else {
             playFeedback("wrong");
             haptic(18);
             setCelebration(feedback);
-            await reload();
           }
           setBusy(false);
           return;
         }
-        if (!stats) return;
+        if (!stats) {
+          setBusy(false);
+          return;
+        }
         const before = stats;
         const result = await submitAnswer({
           sessionCode: identity.sessionCode,
@@ -470,7 +501,6 @@ function PlayInner() {
           level: levelFromXp(newXp).level,
           message: result.message,
         });
-        await reload();
         setBusy(false);
         return;
       } catch (err) {
@@ -483,7 +513,7 @@ function PlayInner() {
       }
     }
     setError(lastError instanceof Error ? lastError.message : "Gagal mengirim jawaban");
-    await reload();
+    void reload();
     setBusy(false);
   };
 
@@ -613,14 +643,13 @@ function PlayInner() {
   }
 
   const totalSlots = state.slots.length;
-  const board = buildLeaderboard(state.teams, state.answers, totalSlots);
   const champion = board[0];
   const championTeam = isSnakes ? standings[0]?.team : champion?.team;
   const turnRange = turn ? stepRangeFor(turn.question.difficulty) : null;
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 px-4 py-5">
-      <div className="sticky top-0 z-30 -mx-4 border-b-2 border-cloud bg-snow/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-30 -mx-4 border-b-2 border-cloud bg-snow px-4 py-3">
         <header className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <span
@@ -643,6 +672,20 @@ function PlayInner() {
                 {stats.xp} XP
               </span>
             ) : null}
+            <button
+              type="button"
+              onClick={toggleLite}
+              aria-pressed={liteOn}
+              title={liteOn ? "Matikan mode ringan" : "Aktifkan mode ringan"}
+              className={[
+                "flex h-9 items-center justify-center rounded-full border-2 px-2.5 text-[11px] font-extrabold transition",
+                liteOn
+                  ? "border-ocean bg-ocean-soft text-ocean-dark"
+                  : "border-cloud bg-white text-ink-soft hover:border-ocean/60",
+              ].join(" ")}
+            >
+              {liteOn ? "Ringan" : "Normal"}
+            </button>
             <button
               type="button"
               onClick={toggleSound}
@@ -689,6 +732,7 @@ function PlayInner() {
         <PressureBanner
           teams={state.teams}
           moves={state.moves}
+          standings={standings}
           config={boardConfig}
           status={state.session.status}
         />
@@ -774,18 +818,16 @@ function PlayInner() {
               </p>
               <div className="mt-2 h-3 overflow-hidden rounded-full bg-cloud">
                 <div
-                  className="h-full rounded-full bg-brand transition-all"
+                  className="h-full w-full origin-left rounded-full bg-brand transition-transform"
                   style={{
-                    width: `${
+                    transform: `scaleX(${
                       boardConfig
                         ? Math.min(
-                            100,
-                            Math.round(
-                              ((myTeam?.position ?? 0) / boardConfig.goal) * 100,
-                            ),
+                            1,
+                            (myTeam?.position ?? 0) / boardConfig.goal,
                           )
                         : 0
-                    }%`,
+                    })`,
                   }}
                 />
               </div>
@@ -897,7 +939,7 @@ function PlayInner() {
                 disabled={busy}
                 loadingSlot={loadingSlot}
                 exactTarget={exactFinish ? remainingTiles : null}
-                onSelect={(slotNumber) => void handleSelect(slotNumber)}
+                onSelect={handleSelectSlot}
               />
             </section>
 
@@ -909,6 +951,7 @@ function PlayInner() {
                 teams={state.teams}
                 config={boardConfig}
                 moves={state.moves}
+                standings={standings}
                 highlightTeamId={identity.teamId}
               />
             </section>
@@ -970,7 +1013,7 @@ function PlayInner() {
                   loadingSlot={loadingSlot}
                   lockedSlots={lockedSlots}
                   filter={boardFilter}
-                  onSelect={(slotNumber) => void handleSelect(slotNumber)}
+                  onSelect={handleSelectSlot}
                 />
               </section>
             )}

@@ -20,6 +20,9 @@ mode (data di `localStorage` browser). Cocok untuk mencoba alur tanpa Supabase.
 
 1. Buat project di <https://supabase.com> (free tier cukup).
 2. Buka **SQL Editor**, jalankan isi [`supabase/schema.sql`](../supabase/schema.sql).
+   Untuk database yang sudah pernah dipakai versi sebelumnya, jalankan
+   [`supabase/migration_optimizations.sql`](../supabase/migration_optimizations.sql) agar tabel
+   `slot_attempts`, trigger Broadcast baru, dan RPC `fetch_game_state`/`create_session` tersedia.
 3. (Opsional) Jalankan [`supabase/seed.sql`](../supabase/seed.sql) untuk bank soal contoh.
 4. Salin kredensial dari **Project Settings → API**:
    - `Project URL`
