@@ -101,6 +101,11 @@ export default function QuestionCard({
       <p className="cc-display text-xl font-extrabold leading-snug text-ink sm:text-2xl">
         {question.question_text}
       </p>
+      {question.metadata?.code_snippet ? (
+        <pre className="overflow-x-auto rounded-2xl bg-ink p-4 font-mono text-sm text-brand-light">
+          {question.metadata.code_snippet}
+        </pre>
+      ) : null}
     </div>
   );
 
@@ -184,11 +189,6 @@ export default function QuestionCard({
         }}
       >
         {header}
-        {question.metadata?.code_snippet ? (
-          <pre className="overflow-x-auto rounded-2xl bg-ink p-4 font-mono text-sm text-brand-light">
-            {question.metadata.code_snippet}
-          </pre>
-        ) : null}
         <input
           type="text"
           value={revealed ? correctAnswer : input}

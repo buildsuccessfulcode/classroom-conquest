@@ -624,13 +624,20 @@ export async function resetSession(sessionCode: string): Promise<void> {
   const client = sb();
   const session = await getSessionByCode(sessionCode);
   if (!session) throw new Error("Sesi tidak ditemukan");
-  await Promise.all([
-    client.from("answers").delete().eq("session_id", session.id),
-    client.from("moves").delete().eq("session_id", session.id),
-    client.from("slot_attempts").delete().eq("session_id", session.id),
-    client.from("activity_logs").delete().eq("session_id", session.id),
-    client.from("teams").delete().eq("session_id", session.id),
-  ]);
+  const tables = [
+    "answers",
+    "moves",
+    "slot_attempts",
+    "activity_logs",
+    "teams",
+  ] as const;
+  for (const table of tables) {
+    const { error: deleteError } = await client
+      .from(table)
+      .delete()
+      .eq("session_id", session.id);
+    if (deleteError) throw new Error(deleteError.message);
+  }
   const { error } = await client
     .from("sessions")
     .update({

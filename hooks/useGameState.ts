@@ -83,10 +83,12 @@ export function useGameState(
   const reconcile = useRef<number | null>(null);
   const flushTimer = useRef<number | null>(null);
   const pending = useRef<RealtimeEvent[]>([]);
+  const inFlightReloads = useRef(0);
 
   const reload = useCallback(async () => {
     if (!sessionCode) return;
     const id = ++seq.current;
+    inFlightReloads.current += 1;
     try {
       const next = await fetchGameState(sessionCode, teamId);
       if (id !== seq.current) return;
@@ -98,6 +100,8 @@ export function useGameState(
     } catch (err) {
       if (id !== seq.current) return;
       setError(err instanceof Error ? err.message : "Gagal memuat sesi");
+    } finally {
+      inFlightReloads.current = Math.max(0, inFlightReloads.current - 1);
     }
   }, [sessionCode, teamId]);
 
@@ -122,7 +126,9 @@ export function useGameState(
       const events = pending.current;
       pending.current = [];
       if (events.length === 0) return;
+      const interruptedReload = inFlightReloads.current > 0;
       seq.current += 1;
+      if (interruptedReload) scheduleReload(0);
       startTransition(() => {
         setState((prev) => (prev ? reduceEvents(prev, events) : prev));
       });
@@ -181,6 +187,7 @@ export function useGameState(
       reconcile.current = null;
       flushTimer.current = null;
       pending.current = [];
+      inFlightReloads.current = 0;
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
     };

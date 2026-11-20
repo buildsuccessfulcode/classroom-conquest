@@ -649,6 +649,11 @@ function SnakesBoard({
                       ? "cc-walk-hop"
                       : "",
                   ].join(" ")}
+                  style={
+                    motion.durationMs > 0 && !motion.sliding
+                      ? { animationDuration: `${motion.durationMs}ms` }
+                      : undefined
+                  }
                 >
                   <Avatar
                     id={team.avatar}

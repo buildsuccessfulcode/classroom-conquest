@@ -268,7 +268,7 @@ body {
 }
 
 .cc-walk-hop {
-  animation: cc-walk-hop 0.22s ease-in-out infinite;
+  animation: cc-walk-hop 0.32s ease-in-out infinite;
 }
 
 @keyframes cc-flame {

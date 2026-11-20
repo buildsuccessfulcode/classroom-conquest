@@ -474,8 +474,8 @@ export function resolveBoardMove(
   };
 }
 
-export const WALK_STEP_MS = 220;
-export const WALK_SLIDE_MS = 700;
+export const WALK_STEP_MS = 320;
+export const WALK_SLIDE_MS = 1100;
 export const MOVE_ROLL_SPIN_MS = 1150;
 export const MOVE_ROLL_READ_MS = 950;
 export const MOVE_ANIMATION_LEAD_MS =
